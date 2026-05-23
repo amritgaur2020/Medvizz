@@ -1,0 +1,15 @@
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @media (prefers-color-scheme: light) {
+      .background { fill: #0891b2; }
+      .pulse-line { stroke: white; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .background { fill: #171717; }
+      .pulse-line { stroke: #22d3ee; }
+    }
+  </style>
+  <rect class="background" width="180" height="180" rx="40" />
+  <path class="pulse-line" d="M30 90 H65 L78 60 L92 120 L105 75 L115 100 L125 90 H150" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="150" cy="90" r="8" fill="#22d3ee" />
+</svg>
