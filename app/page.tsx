@@ -30,6 +30,8 @@ import { BackgroundPaths } from '@/components/background-paths';
 import { ThreeDModel } from '@/components/three-d-model';
 import { SparklesCore } from '@/components/ui/sparkles';
 import FlowArt, { FlowSection } from '@/components/ui/story-scroll';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Message {
   id: string;
@@ -193,53 +195,7 @@ export default function Page() {
     }
   };
 
-  // Helper to parse **bold** markers
-  const parseBoldText = (text: string) => {
-    const parts = text.split(/(\*\*.*?\*\*)/);
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i} className="text-cyan-400 font-semibold">{part.slice(2, -2)}</strong>;
-      }
-      return part;
-    });
-  };
 
-  // Helper to render basic scientific markdown nicely
-  const renderMarkdown = (text: string) => {
-    const lines = text.split('\n');
-    return lines.map((line, index) => {
-      if (line.startsWith('### ')) {
-        return <h3 key={index} className="text-sm font-bold text-white mt-3 mb-1.5 flex items-center gap-1.5">{parseBoldText(line.slice(4))}</h3>;
-      }
-      if (line.startsWith('## ')) {
-        return <h2 key={index} className="text-base font-bold text-white mt-4.5 mb-2 flex items-center gap-1.5">{parseBoldText(line.slice(3))}</h2>;
-      }
-      if (line.startsWith('# ')) {
-        return <h1 key={index} className="text-lg font-bold text-white mt-5 mb-2.5 flex items-center gap-1.5">{parseBoldText(line.slice(2))}</h1>;
-      }
-      
-      if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
-        const content = line.trim().slice(2);
-        return (
-          <ul key={index} className="list-disc pl-5 my-0.5 text-xs sm:text-sm text-[#ececec]">
-            <li>{parseBoldText(content)}</li>
-          </ul>
-        );
-      }
-
-      const numberedMatch = line.trim().match(/^(\d+)\.\s+(.*)/);
-      if (numberedMatch) {
-        return (
-          <ol key={index} className="list-decimal pl-5 my-0.5 text-xs sm:text-sm text-[#ececec]">
-            <li className="pl-1">{parseBoldText(numberedMatch[2])}</li>
-          </ol>
-        );
-      }
-
-      if (line.trim() === '') return <div key={index} className="h-2" />;
-      return <p key={index} className="text-xs sm:text-sm text-[#ececec] leading-relaxed mb-1.5">{parseBoldText(line)}</p>;
-    });
-  };
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputText;
@@ -979,7 +935,30 @@ export default function Page() {
                                 : 'bg-[#171717]/80 border border-[#2f2f2f] text-[#ececec] rounded-tl-none space-y-4'
                             }`}>
                               <div className="space-y-1 mt-0.5">
-                                {renderMarkdown(msg.text)}
+                                <ReactMarkdown 
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    h1: ({node, ...props}) => <h1 className="text-xl sm:text-2xl font-extrabold text-white mt-6 mb-3 tracking-tight border-b border-[#2f2f2f] pb-2" {...props} />,
+                                    h2: ({node, ...props}) => <h2 className="text-lg sm:text-xl font-bold text-white mt-5 mb-2.5 tracking-tight" {...props} />,
+                                    h3: ({node, ...props}) => <h3 className="text-base sm:text-lg font-bold text-cyan-400 mt-4 mb-2" {...props} />,
+                                    p: ({node, ...props}) => <p className="text-sm sm:text-base text-[#d4d4d4] leading-relaxed mb-3" {...props} />,
+                                    ul: ({node, ...props}) => <ul className="list-disc pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
+                                    ol: ({node, ...props}) => <ol className="list-decimal pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
+                                    li: ({node, ...props}) => <li className="leading-relaxed" {...props} />,
+                                    strong: ({node, ...props}) => <strong className="font-semibold text-cyan-300" {...props} />,
+                                    a: ({node, ...props}) => <a className="text-cyan-400 hover:underline hover:text-cyan-300" {...props} />,
+                                    code: ({node, inline, ...props}: any) => 
+                                      inline 
+                                        ? <code className="bg-[#2a2a2a] text-cyan-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-[#3f3f3f]" {...props} />
+                                        : <pre className="bg-[#111] p-4 rounded-xl overflow-x-auto border border-[#333] my-4"><code className="text-[#e2e2e2] text-sm font-mono" {...props} /></pre>,
+                                    blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-cyan-600 pl-4 py-1 my-4 bg-cyan-950/20 text-[#a0a0a0] italic" {...props} />,
+                                    table: ({node, ...props}) => <div className="overflow-x-auto my-4"><table className="w-full text-sm sm:text-base text-left text-[#d4d4d4]" {...props} /></div>,
+                                    th: ({node, ...props}) => <th className="px-4 py-2 border-b border-[#3f3f3f] font-bold text-white bg-[#2a2a2a]" {...props} />,
+                                    td: ({node, ...props}) => <td className="px-4 py-2 border-b border-[#2f2f2f]" {...props} />,
+                                  }}
+                                >
+                                  {msg.text}
+                                </ReactMarkdown>
                               </div>
 
                               {/* Deep link Visualizer CTA */}
