@@ -534,6 +534,19 @@ export default function Page() {
       if (data.source === 'procedural' && !data.uuid) {
         // Neural4D key missing/invalid — no UUID returned, show procedural fallback
         console.log('[3D] Using procedural fallback (Neural4D unavailable)');
+        setNeural4dModelUrl('fallback');
+        
+        // ── Save procedural model to local state ──
+        const recordId = data.modelRecord?.id || ('model_' + Date.now());
+        const newModelItem = {
+          id: recordId,
+          topic: label,
+          prompt: data.promptUsed || `3D procedural simulation of ${label}`,
+          model_url: 'fallback',
+          image_url: null,
+          created_at: new Date().toISOString()
+        };
+        setGeneratedModels(prev => [newModelItem, ...prev]);
         return;
       }
 
