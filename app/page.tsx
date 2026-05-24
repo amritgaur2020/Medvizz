@@ -632,20 +632,38 @@ export default function Page() {
               } else {
                 console.error('[Neural4D] codeStatus=0 but no modelUrl returned');
               }
-            } else if (pollData.codeStatus === 1) {
-              // Still generating — keep polling
-            } else if (pollData.codeStatus === -1) {
+            } else if (pollData.codeStatus === -1 || pollData.codeStatus === -2 || pollData.codeStatus === -3) {
               complete = true;
-              console.error('[Neural4D] Token invalid/expired (-1)');
-            } else if (pollData.codeStatus === -2) {
-              complete = true;
-              console.error('[Neural4D] UUID not found (-2)');
-            } else if (pollData.codeStatus === -3) {
-              complete = true;
-              console.error('[Neural4D] Generation failed (-3)');
+              console.error(`[Neural4D] Generation failed or token expired (codeStatus: ${pollData.codeStatus}). Triggering procedural fallback.`);
+              setNeural4dModelUrl('fallback');
+              
+              // ── Register procedural card locally ──
+              const recordId = 'model_' + Date.now();
+              const newModelItem = {
+                id: recordId,
+                topic: label,
+                prompt: data.promptUsed || `3D procedural simulation of ${label}`,
+                model_url: 'fallback',
+                image_url: null,
+                created_at: new Date().toISOString()
+              };
+              setGeneratedModels(prev => [newModelItem, ...prev]);
             }
           } catch (err) {
             console.error('[Neural4D] Poll error:', err);
+            complete = true;
+            setNeural4dModelUrl('fallback');
+            
+            const recordId = 'model_' + Date.now();
+            const newModelItem = {
+              id: recordId,
+              topic: label,
+              prompt: data.promptUsed || `3D procedural simulation of ${label}`,
+              model_url: 'fallback',
+              image_url: null,
+              created_at: new Date().toISOString()
+            };
+            setGeneratedModels(prev => [newModelItem, ...prev]);
           }
         }
 
