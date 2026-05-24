@@ -256,15 +256,15 @@ export default function Page() {
       if (lowerText.includes('heart') || lowerText.includes('cardio') || lowerText.includes('circulation') || lowerText.includes('coronary') || lowerText.includes('myocardium')) {
         modelSuggestion = 'heart';
         labelSuggestion = 'Aorta & Ventricles';
-      } else if (lowerText.includes('brain') || lowerText.includes('cerebral') || lowerText.includes('synap') || lowerText.includes('neural') || lowerText.includes('cortex')) {
+      } else if (lowerText.includes('kidney') || lowerText.includes('renal') || lowerText.includes('nephron') || lowerText.includes('urin') || lowerText.includes('glomerulus')) {
+        modelSuggestion = 'kidneys';
+        labelSuggestion = 'Renal Cortex & Medulla';
+      } else if (lowerText.includes('brain') || lowerText.includes('cerebral') || lowerText.includes('synap') || lowerText.includes('neural') || lowerText.includes('cerebellum')) {
         modelSuggestion = 'brain';
         labelSuggestion = 'Cerebral Cortex';
       } else if (lowerText.includes('lung') || lowerText.includes('respir') || lowerText.includes('breath') || lowerText.includes('oxygen') || lowerText.includes('pulmonary') || lowerText.includes('alveoli')) {
         modelSuggestion = 'lungs';
         labelSuggestion = 'Trachea & Pulmonary Lobes';
-      } else if (lowerText.includes('kidney') || lowerText.includes('renal') || lowerText.includes('nephron') || lowerText.includes('urine') || lowerText.includes('glomerulus')) {
-        modelSuggestion = 'kidneys';
-        labelSuggestion = 'Renal Cortex & Medulla';
       }
 
       setMessages(prev => [...prev, {
