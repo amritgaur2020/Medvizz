@@ -6,17 +6,68 @@ import * as THREE from "three";
 interface ThreeDModelProps {
   type: "heart" | "brain" | "lungs";
   pulse?: boolean;
+  showLabels?: boolean;
+  activeStructure?: string;
+  onStructureSelect?: (structure: string) => void;
 }
 
-export function ThreeDModel({ type, pulse = true }: ThreeDModelProps) {
+// 3D coordinates on each modular anatomy model
+const nodePositionsMap = {
+  heart: {
+    "Left Ventricle": new THREE.Vector3(0.35, -0.65, 0.2),
+    "Aorta Root": new THREE.Vector3(0.2, 1.15, -0.1),
+    "Vena Cava": new THREE.Vector3(-0.55, 0.75, -0.3),
+    "Myocardium Walls": new THREE.Vector3(-0.75, -0.3, 0.1)
+  },
+  brain: {
+    "Cerebral Cortex": new THREE.Vector3(0.55, 0.7, 0.15),
+    "Cerebellum": new THREE.Vector3(0, -0.85, 0.6),
+    "Brainstem Loop": new THREE.Vector3(0, -1.25, 0.2),
+    "Neural Synapses": new THREE.Vector3(0, 0, 0)
+  },
+  lungs: {
+    "Pulmonary Lobes": new THREE.Vector3(1.05, -0.15, 0.1),
+    "Trachea Conduit": new THREE.Vector3(0, 0.95, 0),
+    "Bronchial Tree": new THREE.Vector3(0, 0.15, 0),
+    "Alveoli Capillaries": new THREE.Vector3(-1.05, -0.75, 0.1)
+  }
+};
+
+// Offset directions for the Sci-Fi HUD labels (in container-width percentages)
+const labelOffsets: { [key: string]: { dx: number; dy: number } } = {
+  // Heart
+  "Left Ventricle": { dx: 18, dy: 12 },
+  "Aorta Root": { dx: -18, dy: -14 },
+  "Vena Cava": { dx: -18, dy: -6 },
+  "Myocardium Walls": { dx: -18, dy: 10 },
+  // Brain
+  "Cerebral Cortex": { dx: 18, dy: -12 },
+  "Cerebellum": { dx: 18, dy: 8 },
+  "Brainstem Loop": { dx: -18, dy: 10 },
+  "Neural Synapses": { dx: -18, dy: -12 },
+  // Lungs
+  "Pulmonary Lobes": { dx: 18, dy: 10 },
+  "Trachea Conduit": { dx: -18, dy: -14 },
+  "Bronchial Tree": { dx: 18, dy: -8 },
+  "Alveoli Capillaries": { dx: -18, dy: 10 }
+};
+
+export function ThreeDModel({
+  type,
+  pulse = true,
+  showLabels = true,
+  activeStructure,
+  onStructureSelect
+}: ThreeDModelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [nodePositions, setNodePositions] = React.useState<Array<{ name: string; x: number; y: number; dx: number; dy: number }>>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     const container = containerRef.current;
-    const width = container.clientWidth || 400;
-    const height = container.clientHeight || 400;
+    const width = Math.max(300, container.clientWidth);
+    const height = Math.max(300, container.clientHeight);
 
     // Create Scene
     const scene = new THREE.Scene();
@@ -271,14 +322,45 @@ export function ThreeDModel({ type, pulse = true }: ThreeDModelProps) {
       }
 
       renderer.render(scene, camera);
+
+      // Project and calculate 2D screen positions of active labels
+      const activePositions = nodePositionsMap[type];
+      const positionsArray: Array<{ name: string; x: number; y: number; dx: number; dy: number }> = [];
+
+      Object.entries(activePositions).forEach(([name, localPos]) => {
+        const tempV = new THREE.Vector3();
+        tempV.copy(localPos);
+        tempV.applyMatrix4(group.matrixWorld);
+        tempV.project(camera);
+        
+        // Convert normalized coordinates to pixel spaces relative to the container
+        const currentWidth = container.clientWidth || 400;
+        const currentHeight = container.clientHeight || 400;
+        const x = (tempV.x * 0.5 + 0.5) * currentWidth;
+        const y = (-(tempV.y * 0.5) + 0.5) * currentHeight;
+        
+        const offset = labelOffsets[name] || { dx: 15, dy: 10 };
+        const dxPx = (offset.dx / 100) * currentWidth;
+        const dyPx = (offset.dy / 100) * currentHeight;
+
+        positionsArray.push({
+          name,
+          x,
+          y,
+          dx: dxPx,
+          dy: dyPx
+        });
+      });
+
+      setNodePositions(positionsArray);
     };
 
     animate();
 
     const handleResize = () => {
       if (!container) return;
-      const newWidth = container.clientWidth;
-      const newHeight = container.clientHeight;
+      const newWidth = Math.max(300, container.clientWidth);
+      const newHeight = Math.max(300, container.clientHeight);
       camera.aspect = newWidth / newHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(newWidth, newHeight);
@@ -307,7 +389,89 @@ export function ThreeDModel({ type, pulse = true }: ThreeDModelProps) {
   return (
     <div
       ref={containerRef}
-      className="w-full h-full min-h-[300px] flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
-    />
+      className="w-full h-full min-h-[300px] flex items-center justify-center cursor-grab active:cursor-grabbing select-none relative"
+    >
+      {/* Three.js canvas renders inside this div */}
+
+      {/* SVG overlay containing the callout lines and label nodes */}
+      {showLabels && nodePositions.length > 0 && (
+        <div className="absolute inset-0 pointer-events-none w-full h-full overflow-hidden z-20">
+          <svg className="w-full h-full absolute inset-0 pointer-events-none">
+            {nodePositions.map((pos) => {
+              const active = pos.name === activeStructure;
+              const x2 = pos.x + pos.dx;
+              const y2 = pos.y + pos.dy;
+              const xMid = pos.x + pos.dx * 0.45; // elbow break position
+              
+              return (
+                <g key={pos.name} className="transition-all duration-300">
+                  {/* Dotted HUD pointer line with Sci-Fi elbow */}
+                  <path
+                    d={`M ${pos.x} ${pos.y} L ${xMid} ${y2} L ${x2} ${y2}`}
+                    stroke={active ? "#06b6d4" : "#4b5563"}
+                    strokeWidth={active ? 2 : 1}
+                    strokeDasharray={active ? "none" : "3,3"}
+                    fill="none"
+                    opacity={active ? 0.95 : 0.4}
+                    className="transition-all duration-300"
+                  />
+                  {/* Interactive glowing anchor ring at the 3D node center */}
+                  <circle
+                    cx={pos.x}
+                    cy={pos.y}
+                    r={active ? 5 : 3}
+                    fill={active ? "#06b6d4" : "#6b7280"}
+                    opacity={active ? 1.0 : 0.5}
+                    className="transition-all duration-300"
+                  />
+                  {active && (
+                    <circle
+                      cx={pos.x}
+                      cy={pos.y}
+                      r={10}
+                      fill="none"
+                      stroke="#06b6d4"
+                      strokeWidth={1}
+                      opacity={0.6}
+                      className="animate-ping"
+                    />
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Interactive Floating HTML Label tags */}
+          {nodePositions.map((pos) => {
+            const active = pos.name === activeStructure;
+            const x2 = pos.x + pos.dx;
+            const y2 = pos.y + pos.dy;
+
+            return (
+              <button
+                key={pos.name}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStructureSelect?.(pos.name);
+                }}
+                style={{
+                  left: `${x2}px`,
+                  top: `${y2}px`,
+                  transform: `translate(${pos.dx > 0 ? "0%" : "-100%"}, -50%)`,
+                }}
+                className={`absolute pointer-events-auto flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all duration-300 shadow-lg ${
+                  active
+                    ? "bg-cyan-950/95 border-cyan-500 text-white scale-105 shadow-cyan-950/40"
+                    : "bg-[#171717]/85 border-[#2f2f2f] text-[#b4b4b4] hover:text-white hover:border-[#4f4f4f]"
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${active ? "bg-cyan-400 animate-pulse" : "bg-neutral-600"}`} />
+                <span className="truncate">{pos.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

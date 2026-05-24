@@ -20,11 +20,16 @@ import {
   Dna,
   User,
   Sliders,
-  Maximize2
+  Maximize2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Tag,
+  Trash2
 } from 'lucide-react';
 import { BackgroundPaths } from '@/components/background-paths';
 import { ThreeDModel } from '@/components/three-d-model';
 import { SparklesCore } from '@/components/ui/sparkles';
+import FlowArt, { FlowSection } from '@/components/ui/story-scroll';
 
 interface Message {
   id: string;
@@ -39,7 +44,14 @@ export default function Page() {
   const [activeTab, setActiveTab] = useState<'chat' | '3d'>('chat');
   const [selectedModel, setSelectedModel] = useState<'heart' | 'brain' | 'lungs'>('heart');
   const [activeStructure, setActiveStructure] = useState<string>('Left Ventricle');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showLabels, setShowLabels] = useState(true);
+  const [showHUD, setShowHUD] = useState(true);
   
+  // SQLite persistent session states
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>('');
+
   // Chat state
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -52,12 +64,184 @@ export default function Page() {
   const [isThinking, setIsThinking] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Load sessions from SQLite on mount
+  useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        if (data.sessions && data.sessions.length > 0) {
+          setSessions(data.sessions);
+          // Set active session to the most recent one
+          setCurrentSessionId(data.sessions[0].id);
+          
+          // Load its messages
+          const msgRes = await fetch(`/api/sessions/messages?sessionId=${data.sessions[0].id}`);
+          const msgData = await msgRes.json();
+          if (msgData.messages) {
+            setMessages(msgData.messages.map((m: any) => ({
+              id: m.id,
+              sender: m.sender,
+              text: m.text,
+              suggestModel: m.suggest_model || undefined,
+              suggestLabel: m.suggest_label || undefined
+            })));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to initialize SQLite session data:', err);
+      }
+    };
+    
+    loadSessions();
+  }, []);
+
   // Auto-scroll messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
 
-  const handleSendMessage = (textToSend?: string) => {
+  // Persistent SQLite Session Handlers
+  const handleSelectSession = async (sessionId: string) => {
+    setCurrentSessionId(sessionId);
+    setActiveTab('chat');
+    setIsThinking(false);
+    try {
+      const msgRes = await fetch(`/api/sessions/messages?sessionId=${sessionId}`);
+      const msgData = await msgRes.json();
+      if (msgData.messages) {
+        setMessages(msgData.messages.map((m: any) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+          suggestModel: m.suggest_model || undefined,
+          suggestLabel: m.suggest_label || undefined
+        })));
+      }
+    } catch (err) {
+      console.error('Failed to load messages for session:', err);
+    }
+  };
+
+  const handleNewSession = async (title: string = 'New Medical Chat Session', modelType: string = 'general') => {
+    const newSessionId = 'session_' + Date.now();
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: newSessionId, title, modelType }),
+      });
+      const data = await res.json();
+      if (data.session) {
+        // Add to active sessions list
+        setSessions(prev => [data.session, ...prev]);
+        setCurrentSessionId(newSessionId);
+        
+        // Add initial message locally and save in SQLite
+        const initialText = "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.";
+        const initialMsgId = 'msg_welcome_' + Date.now();
+        
+        await fetch('/api/sessions/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: initialMsgId,
+            sessionId: newSessionId,
+            sender: 'ai',
+            text: initialText,
+            suggestModel: null,
+            suggestLabel: null
+          })
+        });
+
+        setMessages([
+          {
+            id: initialMsgId,
+            sender: 'ai',
+            text: initialText
+          }
+        ]);
+        setActiveTab('chat');
+      }
+    } catch (err) {
+      console.error('Failed to create new persistent session:', err);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Avoid selecting the deleted session
+    try {
+      const res = await fetch(`/api/sessions?id=${sessionId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const updatedSessions = sessions.filter(s => s.id !== sessionId);
+        setSessions(updatedSessions);
+        
+        // If we deleted the currently active session, switch to another one
+        if (currentSessionId === sessionId) {
+          if (updatedSessions.length > 0) {
+            handleSelectSession(updatedSessions[0].id);
+          } else {
+            // If zero sessions left, create a fresh one!
+            handleNewSession('MedVis AI Clinical Sandbox', 'general');
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete persistent session:', err);
+    }
+  };
+
+  // Helper to parse **bold** markers
+  const parseBoldText = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*)/);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="text-cyan-400 font-semibold">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+  };
+
+  // Helper to render basic scientific markdown nicely
+  const renderMarkdown = (text: string) => {
+    const lines = text.split('\n');
+    return lines.map((line, index) => {
+      if (line.startsWith('### ')) {
+        return <h3 key={index} className="text-sm font-bold text-white mt-3 mb-1.5 flex items-center gap-1.5">{parseBoldText(line.slice(4))}</h3>;
+      }
+      if (line.startsWith('## ')) {
+        return <h2 key={index} className="text-base font-bold text-white mt-4.5 mb-2 flex items-center gap-1.5">{parseBoldText(line.slice(3))}</h2>;
+      }
+      if (line.startsWith('# ')) {
+        return <h1 key={index} className="text-lg font-bold text-white mt-5 mb-2.5 flex items-center gap-1.5">{parseBoldText(line.slice(2))}</h1>;
+      }
+      
+      if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+        const content = line.trim().slice(2);
+        return (
+          <ul key={index} className="list-disc pl-5 my-0.5 text-xs sm:text-sm text-[#ececec]">
+            <li>{parseBoldText(content)}</li>
+          </ul>
+        );
+      }
+
+      const numberedMatch = line.trim().match(/^(\d+)\.\s+(.*)/);
+      if (numberedMatch) {
+        return (
+          <ol key={index} className="list-decimal pl-5 my-0.5 text-xs sm:text-sm text-[#ececec]">
+            <li className="pl-1">{parseBoldText(numberedMatch[2])}</li>
+          </ol>
+        );
+      }
+
+      if (line.trim() === '') return <div key={index} className="h-2" />;
+      return <p key={index} className="text-xs sm:text-sm text-[#ececec] leading-relaxed mb-1.5">{parseBoldText(line)}</p>;
+    });
+  };
+
+  const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputText;
     if (!query.trim()) return;
 
@@ -68,44 +252,63 @@ export default function Page() {
       text: query,
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInputText('');
     setIsThinking(true);
 
-    // Simulate clinical AI response
-    setTimeout(() => {
-      let aiResponseText = "";
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          sessionId: currentSessionId,
+          messages: updatedMessages 
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get response from Grok AI');
+      }
+
+      const data = await response.json();
+      const aiResponseText = data.choices?.[0]?.message?.content || 'Sorry, I was unable to process that response. Please try again.';
+
+      // Determine model suggestion dynamically based on query or response keywords
       let modelSuggestion: 'heart' | 'brain' | 'lungs' | undefined;
       let labelSuggestion = "";
-
-      const lowerQuery = query.toLowerCase();
-      if (lowerQuery.includes('heart') || lowerQuery.includes('cardio') || lowerQuery.includes('circulation')) {
-        aiResponseText = "### Cardiac Cycle & Coronary Circulation\n\nThe human heart is a precise four-chambered muscle that pumps oxygen-rich blood through the aorta. The left ventricle generates the necessary systemic pressure to propel oxygenated blood through the body. Coronary arteries branch directly from the aorta root, providing vital nutrients to the myocardium.\n\nTo view this dynamically, you can load our interactive 3D Cardiovascular Heart model below to see ventricular contractions and active blood flow particle simulations.";
+      
+      const lowerText = (query + " " + aiResponseText).toLowerCase();
+      if (lowerText.includes('heart') || lowerText.includes('cardio') || lowerText.includes('circulation') || lowerText.includes('coronary') || lowerText.includes('myocardium')) {
         modelSuggestion = 'heart';
         labelSuggestion = 'Aorta & Ventricles';
-      } else if (lowerQuery.includes('brain') || lowerQuery.includes('cerebral') || lowerQuery.includes('synap') || lowerQuery.includes('neural')) {
-        aiResponseText = "### Cerebral Hemispheres & Synaptic Pathways\n\nThe brain comprises two large cerebral hemispheres responsible for high-level cognition, sensory integration, and motor commands. Folds known as gyri and sulci increase surface area. Neural signaling occurs across chemical synapses where neurotransmitters spark micro-electric actions.\n\nYou can launch our real-time 3D Neural Brain simulation to explore cerebral lobes, cerebellic motor loops, and active neural firing particle clouds.";
+      } else if (lowerText.includes('brain') || lowerText.includes('cerebral') || lowerText.includes('synap') || lowerText.includes('neural') || lowerText.includes('cortex')) {
         modelSuggestion = 'brain';
         labelSuggestion = 'Cerebral Cortex';
-      } else if (lowerQuery.includes('lung') || lowerQuery.includes('respir') || lowerQuery.includes('breath') || lowerQuery.includes('oxygen')) {
-        aiResponseText = "### Pulmonary Alveoli & Respiratory Exchange\n\nRespiration functions via pressure gradients between lungs and atmosphere. When the diaphragm contracts, lung volume expands, drawing oxygen through the trachea and bronchial branches into microscopic alveoli. Oxygen diffuses into blood capillaries while carbon dioxide is exhaled.\n\nOpen our interactive 3D Pulmonary Respiratory model to witness realistic deep breathing cycles and active oxygen particle diffusion.";
+      } else if (lowerText.includes('lung') || lowerText.includes('respir') || lowerText.includes('breath') || lowerText.includes('oxygen') || lowerText.includes('pulmonary') || lowerText.includes('alveoli')) {
         modelSuggestion = 'lungs';
         labelSuggestion = 'Trachea & Pulmonary Lobes';
-      } else {
-        aiResponseText = "### Medical Visualization Interface\n\nI have logged your clinical query. MedVis integrates specialized modular visualizers for different anatomy tracks, including the Cardiovascular System, Nervous/Cerebral Networks, and Pulmonary/Respiratory Loops.\n\nChoose one of our core systems to inspect high-fidelity structures and active physiological simulations.";
-        modelSuggestion = 'heart';
-        labelSuggestion = 'System Default';
       }
 
       setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
+        id: data.aiMsgId || (Date.now() + 1).toString(),
         sender: 'ai',
         text: aiResponseText,
         suggestModel: modelSuggestion,
         suggestLabel: labelSuggestion,
       }]);
+    } catch (error) {
+      console.error('Error fetching Grok AI response:', error);
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        sender: 'ai',
+        text: "### API Telemetry Error\n\nI was unable to establish a secure connection to the Grok reasoning cluster. Please check the network bridge or retry in a few moments.",
+      }]);
+    } finally {
       setIsThinking(false);
-    }, 1500);
+    }
   };
 
   const handleLaunch3D = (model: 'heart' | 'brain' | 'lungs', label: string) => {
@@ -241,94 +444,255 @@ export default function Page() {
             </div>
           </section>
 
-          {/* Features Section */}
-          <section id="features" className="relative z-10 py-24 px-6 bg-card/30">
-            <div className="max-w-6xl mx-auto">
-              <div className="text-center mb-16">
-                <p className="text-sm text-muted-foreground mb-4 tracking-wide uppercase">Core Features</p>
-                <h2 className="text-4xl md:text-5xl font-bold tracking-tight">Everything You Need to Excel</h2>
-              </div>
-
-              <div className="grid md:grid-cols-3 gap-8">
-                {[
-                  {
-                    title: 'AI-Powered Learning',
-                    description: 'Interactive chat with advanced medical AI for instant answers and deep explanations of complex concepts.',
-                  },
-                  {
-                    title: '3D Anatomical Models',
-                    description: 'Explore rotating, interactive 3D visualizations of human anatomy with detailed labeling.',
-                  },
-                  {
-                    title: 'Structured Curriculum',
-                    description: 'Comprehensive learning paths covering 2,300+ medical terms organized by body system.',
-                  },
-                  {
-                    title: 'AI-Generated Notes',
-                    description: 'Automatic summaries and study guides created from your learning sessions.',
-                  },
-                  {
-                    title: 'Progress Tracking',
-                    description: 'Detailed analytics showing your learning progress and knowledge retention over time.',
-                  },
-                  {
-                    title: 'Exam Preparation',
-                    description: 'Curated practice questions and mock exams aligned with medical licensing standards.',
-                  },
-                ].map((feature, i) => (
-                  <div key={i} className="p-8 border border-border rounded bg-background/50 hover:border-foreground/50 transition-colors">
-                    <div className="w-12 h-12 bg-foreground rounded flex items-center justify-center mb-4">
-                      <CheckCircle2 className="w-6 h-6 text-background" />
+          {/* Flow Presentation - Running from the Second Page Onward */}
+          <div id="features" className="relative z-10 border-y border-border/10">
+            <FlowArt aria-label="MedVis Presentation Flow">
+              {/* Slide 1: Core Features */}
+              <FlowSection aria-label="Core Features" className="bg-[#0a0a0a] text-[#fff]">
+                <div className="absolute inset-0 bg-[#0a0a0a] -z-20" />
+                <div className="flex flex-col h-full justify-between relative z-10">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-400">01 — Core Features</p>
+                  <hr className="my-4 border-none border-t border-[#2f2f2f]/60" />
+                  <div>
+                    <div className="text-center mb-8">
+                      <p className="text-sm text-muted-foreground mb-2 tracking-wide uppercase">Interactive Systems</p>
+                      <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white">Everything You Need to Excel</h2>
                     </div>
-                    <h3 className="text-lg font-semibold mb-3">{feature.title}</h3>
-                    <p className="text-muted-foreground text-sm leading-relaxed">{feature.description}</p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-4">
+                      {[
+                        {
+                          title: 'AI-Powered Learning',
+                          description: 'Interactive chat with advanced medical AI for instant answers and deep explanations of complex concepts.',
+                        },
+                        {
+                          title: '3D Anatomical Models',
+                          description: 'Explore rotating, interactive 3D visualizations of human anatomy with detailed labeling.',
+                        },
+                        {
+                          title: 'Structured Curriculum',
+                          description: 'Comprehensive learning paths covering 2,300+ medical terms organized by body system.',
+                        },
+                        {
+                          title: 'AI-Generated Notes',
+                          description: 'Automatic summaries and study guides created from your learning sessions.',
+                        },
+                        {
+                          title: 'Progress Tracking',
+                          description: 'Detailed analytics showing your learning progress and knowledge retention over time.',
+                        },
+                        {
+                          title: 'Exam Preparation',
+                          description: 'Curated practice questions and mock exams aligned with medical licensing standards.',
+                        },
+                      ].map((feature, i) => (
+                        <div key={i} className="p-6 border border-[#2f2f2f]/60 rounded-xl bg-[#171717]/40 hover:border-cyan-500/40 transition-all backdrop-blur-sm relative overflow-hidden group">
+                          <div className="w-10 h-10 bg-cyan-950/60 border border-cyan-900/60 rounded-lg flex items-center justify-center mb-3">
+                            <CheckCircle2 className="w-5 h-5 text-cyan-400" />
+                          </div>
+                          <h3 className="text-md font-bold text-white mb-2 group-hover:text-cyan-300 transition-colors">{feature.title}</h3>
+                          <p className="text-[#b4b4b4] text-xs leading-relaxed">{feature.description}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          </section>
+                  <hr className="my-4 border-none border-t border-[#2f2f2f]/60" />
+                </div>
+                <BackgroundPaths className="absolute inset-0" opacity={2.5} />
+              </FlowSection>
 
-          {/* How It Works */}
-          <section id="how" className="relative z-10 py-24 px-6">
-            <div className="max-w-6xl mx-auto">
-              <div className="text-center mb-16">
-                <p className="text-sm text-muted-foreground mb-4 tracking-wide uppercase">The Process</p>
-                <h2 className="text-4xl md:text-5xl font-bold tracking-tight">How Medvis Works</h2>
-              </div>
-
-              <div className="grid md:grid-cols-4 gap-8">
-                {[
-                  { step: '01', title: 'Ask', desc: 'Chat naturally with our AI about medical concepts' },
-                  { step: '02', title: 'Visualize', desc: 'See 3D models bring anatomy to life' },
-                  { step: '03', title: 'Learn', desc: 'Study from AI-generated notes and summaries' },
-                  { step: '04', title: 'Master', desc: 'Reinforce learning with practice questions' },
-                ].map((item, i) => (
-                  <div key={i}>
-                    <div className="text-5xl font-bold text-muted-foreground mb-4">{item.step}</div>
-                    <h3 className="text-xl font-semibold mb-2">{item.title}</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+              {/* Slide 2: Introduction */}
+              <FlowSection aria-label="Platform Clarity" className="bg-[#070f12] text-[#fff]">
+                <div className="absolute inset-0 bg-[#070f12] -z-20" />
+                <div className="flex flex-col h-full justify-between relative z-10">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-400">02 — The Platform</p>
+                  <hr className="my-4 border-none border-t border-cyan-950/40" />
+                  <div>
+                    <h2 className="text-[clamp(2.5rem,7vw,7rem)] font-extrabold leading-[0.9] uppercase tracking-tight text-white mb-6">
+                      Anatomical
+                      <br />
+                      Precision
+                      <br />
+                      Unleashed
+                    </h2>
+                    <p className="max-w-[50ch] text-[clamp(1rem,1.8vw,1.5rem)] font-normal leading-relaxed text-cyan-100/70">
+                      We believe medical education deserves ultimate visual precision. No over-simplified diagrams — just rich, interactive anatomical simulations mapped to peer-reviewed data.
+                    </p>
                   </div>
-                ))}
-              </div>
-            </div>
-          </section>
+                  <hr className="my-4 border-none border-t border-cyan-950/40" />
+                  <div className="flex items-center gap-2 text-xs font-semibold text-cyan-500/70 uppercase tracking-wider">
+                    <Activity className="w-4 h-4 text-cyan-500 animate-pulse" />
+                    SCROLL DOWN TO REVEAL DEEPER SYSTEMS
+                  </div>
+                </div>
+                <BackgroundPaths className="absolute inset-0" opacity={2.5} />
+              </FlowSection>
 
-          {/* CTA Section */}
-          <section className="relative z-10 py-24 px-6 border-t border-border/20 bg-gradient-to-b from-transparent to-[#171717]/20">
-            <div className="max-w-3xl mx-auto text-center">
-              <h2 className="text-5xl font-bold mb-6 tracking-tight">Ready to explore clinical science?</h2>
-              <p className="text-lg text-muted-foreground mb-8">
-                Launch our interactive simulator workspace to interact with clinical AI models and master anatomy in real-time.
-              </p>
-              <button 
-                onClick={() => setShowDashboard(true)}
-                className="px-8 py-4 bg-foreground text-background font-semibold rounded hover:opacity-90 transition-opacity inline-flex items-center gap-2"
-              >
-                Launch Simulator
-                <ArrowRight className="w-5 h-5" />
-              </button>
-            </div>
-          </section>
+              {/* Slide 3: AI Core */}
+              <FlowSection aria-label="MedVis AI Mission" className="bg-[#07161c] text-[#fff]">
+                <div className="absolute inset-0 bg-[#07161c] -z-20" />
+                <div className="flex flex-col h-full justify-between relative z-10">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-400">03 — Neural Core</p>
+                  <hr className="my-4 border-none border-t border-cyan-900/40" />
+                  <div>
+                    <h2 className="text-[clamp(2.5rem,7vw,7rem)] font-extrabold leading-[0.9] uppercase tracking-tight text-white mb-6">
+                      Conversational
+                      <br />
+                      Anatomy
+                      <br />
+                      Engine
+                    </h2>
+                    <p className="max-w-[50ch] text-[clamp(1rem,1.8vw,1.5rem)] font-normal leading-relaxed text-cyan-100/80 mb-8">
+                      A unique integration of natural language processing and WebGL. Explore physical structures organically through real-time dialogue and telemetry mappings.
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-4">
+                    <div className="p-5 border border-cyan-800/40 bg-cyan-950/40 rounded-xl backdrop-blur-sm">
+                      <Sparkles className="w-5 h-5 text-cyan-400 mb-2" />
+                      <p className="text-sm font-bold uppercase tracking-wider text-white mb-1">Interactive Highlight</p>
+                      <p className="text-xs text-cyan-200/60 leading-relaxed">
+                        Medical terms mentioned in chat instantly illuminate the corresponding 3D node.
+                      </p>
+                    </div>
+                    <div className="p-5 border border-cyan-800/40 bg-cyan-950/40 rounded-xl backdrop-blur-sm">
+                      <Brain className="w-5 h-5 text-cyan-400 mb-2" />
+                      <p className="text-sm font-bold uppercase tracking-wider text-white mb-1">Intelligent Context</p>
+                      <p className="text-xs text-cyan-200/60 leading-relaxed">
+                        Ask about complex arterial loops, tissue elasticity, or physiological cycles.
+                      </p>
+                    </div>
+                    <div className="p-5 border border-cyan-800/40 bg-cyan-950/40 rounded-xl backdrop-blur-sm">
+                      <Sliders className="w-5 h-5 text-cyan-400 mb-2" />
+                      <p className="text-sm font-bold uppercase tracking-wider text-white mb-1">Dynamic Telemetry</p>
+                      <p className="text-xs text-cyan-200/60 leading-relaxed">
+                        Examine active vital notes and control interactive models dynamically.
+                      </p>
+                    </div>
+                  </div>
+                  <hr className="my-4 border-none border-t border-cyan-900/40" />
+                </div>
+                <BackgroundPaths className="absolute inset-0" opacity={2.5} />
+              </FlowSection>
+
+              {/* Slide 4: The Process */}
+              <FlowSection aria-label="Platform Process" className="bg-[#0b1626] text-[#fff]">
+                <div className="absolute inset-0 bg-[#0b1626] -z-20" />
+                <div className="flex flex-col h-full justify-between relative z-10">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-400">04 — How It Works</p>
+                  <hr className="my-4 border-none border-t border-slate-700/40" />
+                  <div>
+                    <h2 className="text-[clamp(2.5rem,7vw,7rem)] font-extrabold leading-[0.9] uppercase tracking-tight text-white mb-6">
+                      Ask.
+                      <br />
+                      Orbit.
+                      <br />
+                      Master.
+                    </h2>
+                    <p className="max-w-[50ch] text-[clamp(1rem,1.8vw,1.5rem)] font-normal leading-relaxed text-slate-300 mb-8">
+                      Three intuitive steps. Zero clutter. Master intricate medical science the moment you enter the lab.
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-4">
+                    <div className="p-5 border border-slate-700/40 bg-slate-800/40 rounded-xl backdrop-blur-sm">
+                      <p className="text-3xl font-extrabold text-cyan-400/80 mb-2">01</p>
+                      <p className="text-sm font-bold uppercase tracking-wider text-white mb-1">Ask naturally</p>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        Prompt our clinical AI assistant with specific anatomical questions or tissue loops.
+                      </p>
+                    </div>
+                    <div className="p-5 border border-slate-700/40 bg-slate-800/40 rounded-xl backdrop-blur-sm">
+                      <p className="text-3xl font-extrabold text-cyan-400/80 mb-2">02</p>
+                      <p className="text-sm font-bold uppercase tracking-wider text-white mb-1">Orbit & highlighting</p>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        Interact directly with high-fidelity models, rotate viewports, and expand nodes.
+                      </p>
+                    </div>
+                    <div className="p-5 border border-slate-700/40 bg-slate-800/40 rounded-xl backdrop-blur-sm">
+                      <p className="text-3xl font-extrabold text-cyan-400/80 mb-2">03</p>
+                      <p className="text-sm font-bold uppercase tracking-wider text-white mb-1">Synthesize notes</p>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        Auto-generate clean summary cards and physiological schemas for offline study.
+                      </p>
+                    </div>
+                  </div>
+                  <hr className="my-4 border-none border-t border-slate-700/40" />
+                </div>
+                <BackgroundPaths className="absolute inset-0" opacity={2.5} />
+              </FlowSection>
+
+              {/* Slide 5: Core Metrics */}
+              <FlowSection aria-label="MedVis Vision" className="bg-[#13111f] text-[#fff]">
+                <div className="absolute inset-0 bg-[#13111f] -z-20" />
+                <div className="flex flex-col h-full justify-between relative z-10">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-400">05 — Core Metrics</p>
+                  <hr className="my-4 border-none border-t border-purple-950/40" />
+                  <div>
+                    <h2 className="text-[clamp(2.5rem,7vw,7rem)] font-extrabold leading-[0.9] uppercase tracking-tight text-white mb-6">
+                      The Future
+                      <br />
+                      Of Learning
+                    </h2>
+                    <p className="max-w-[50ch] text-[clamp(1rem,1.8vw,1.5rem)] font-normal leading-relaxed text-[#b4b4b4] mb-8">
+                      We&apos;re not just building a static database. We are engineering a revolutionary standard for digital clinical comprehension.
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-4">
+                    <div className="p-5 border border-purple-900/40 bg-purple-950/30 rounded-xl backdrop-blur-sm">
+                      <p className="text-4xl font-extrabold text-cyan-400">2,300+</p>
+                      <p className="text-xs text-[#b4b4b4] mt-2 leading-relaxed">
+                        Active interactive medical nodes and anatomical catalog listings.
+                      </p>
+                    </div>
+                    <div className="p-5 border border-purple-900/40 bg-purple-950/30 rounded-xl backdrop-blur-sm">
+                      <p className="text-4xl font-extrabold text-cyan-400">15K+</p>
+                      <p className="text-xs text-[#b4b4b4] mt-2 leading-relaxed">
+                        Active learners, medical students, and clinical practitioners worldwide.
+                      </p>
+                    </div>
+                    <div className="p-5 border border-purple-900/40 bg-purple-950/30 rounded-xl backdrop-blur-sm">
+                      <p className="text-4xl font-extrabold text-cyan-400">98%</p>
+                      <p className="text-xs text-[#b4b4b4] mt-2 leading-relaxed">
+                        Comprehension and classroom test-prep retention rate increase.
+                      </p>
+                    </div>
+                  </div>
+                  <hr className="my-4 border-none border-t border-purple-950/40" />
+                </div>
+                <BackgroundPaths className="absolute inset-0" opacity={2.5} />
+              </FlowSection>
+
+              {/* Slide 6: Call to Action */}
+              <FlowSection aria-label="Explore MedVis" className="bg-[#070707] text-[#fff]">
+                <div className="absolute inset-0 bg-[#070707] -z-20" />
+                <div className="flex flex-col h-full justify-between relative z-10">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-400">06 — Deep Exploration</p>
+                  <hr className="my-4 border-none border-t border-[#2f2f2f]" />
+                  <div className="my-auto text-center max-w-2xl mx-auto py-12">
+                    <h2 className="text-[clamp(2.5rem,6vw,6rem)] font-extrabold leading-[0.95] uppercase tracking-tight text-white mb-6">
+                      Ready to
+                      <br />
+                      Begin?
+                    </h2>
+                    <p className="text-base sm:text-lg text-[#b4b4b4] mb-8 leading-relaxed">
+                      Take complete control of your clinical educational path. Launch the 3D medical simulator and experience natural interactive learning.
+                    </p>
+                    <button 
+                      onClick={() => setShowDashboard(true)}
+                      className="px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold rounded-xl shadow-lg shadow-cyan-950/40 hover:shadow-cyan-400/20 hover:scale-[1.02] active:scale-[0.98] transition-all inline-flex items-center gap-2"
+                    >
+                      Launch Simulator
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <hr className="my-4 border-none border-t border-[#2f2f2f]" />
+                </div>
+                <BackgroundPaths className="absolute inset-0" opacity={2.5} />
+              </FlowSection>
+            </FlowArt>
+          </div>
 
           {/* Footer */}
           <footer className="relative z-10 border-t border-border bg-card/20 px-6 py-12">
@@ -358,34 +722,33 @@ export default function Page() {
         /* PREMIUM CHATGPT-STYLE DASHBOARD */
         <div className="fixed inset-0 z-50 flex bg-[#212121] text-[#ececec] font-sans">
           
+          {/* Mobile Sidebar Overlay */}
+          {isSidebarOpen && (
+            <div 
+              onClick={() => setIsSidebarOpen(false)}
+              className="md:hidden fixed inset-0 bg-black/60 z-30 backdrop-blur-sm transition-opacity"
+            />
+          )}
+
           {/* LEFT SIDEBAR (ChatGPT Style) */}
-          <div className="w-64 flex-shrink-0 bg-[#171717] border-r border-[#2f2f2f] flex flex-col justify-between p-3.5">
+          <div className={`transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64 p-3.5 opacity-100 border-r border-[#2f2f2f]' : 'w-0 p-0 opacity-0 border-r-0 overflow-hidden'} flex-shrink-0 bg-[#171717] flex flex-col justify-between fixed md:relative inset-y-0 left-0 md:inset-y-auto md:left-auto z-40 md:z-auto shadow-2xl md:shadow-none`}>
             <div className="flex flex-col gap-1.5">
               
               {/* Sidebar Header / New Chat */}
               <div className="flex items-center justify-between gap-2 mb-4">
                 <button 
-                  onClick={() => {
-                    setActiveTab('chat');
-                    setMessages([
-                      {
-                        id: Date.now().toString(),
-                        sender: 'ai',
-                        text: "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.",
-                      }
-                    ]);
-                  }}
+                  onClick={() => handleNewSession()}
                   className="flex-1 flex items-center gap-2 p-2 hover:bg-[#212121] rounded-lg transition-colors border border-[#2f2f2f] text-sm font-medium text-left"
                 >
                   <Plus className="w-4 h-4" />
                   New Chat
                 </button>
                 <button 
-                  onClick={() => setShowDashboard(false)} 
-                  title="Back to Landing Page"
+                  onClick={() => setIsSidebarOpen(false)} 
+                  title="Collapse Sidebar"
                   className="p-2 hover:bg-[#212121] border border-[#2f2f2f] rounded-lg text-[#b4b4b4] hover:text-white transition-colors"
                 >
-                  <LogOut className="w-4 h-4 rotate-180" />
+                  <PanelLeftClose className="w-4 h-4" />
                 </button>
               </div>
 
@@ -409,9 +772,42 @@ export default function Page() {
 
               <div className="h-[1px] bg-[#2f2f2f] my-4" />
 
-              {/* Recent Conversations */}
+              {/* Active Conversations (SQLite) */}
+              <div className="flex flex-col gap-1 overflow-y-auto max-h-[35vh] pr-1">
+                <p className="text-[10px] font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-[#6f6f6f]" />
+                  Chat History (SQLite)
+                </p>
+                {sessions.map((session) => (
+                  <div
+                    key={session.id}
+                    onClick={() => handleSelectSession(session.id)}
+                    className={`group/item flex items-center justify-between w-full p-2 rounded-lg text-xs transition-all text-left truncate cursor-pointer ${
+                      currentSessionId === session.id 
+                        ? 'bg-[#212121] text-cyan-400 font-semibold border border-cyan-950/40 shadow-inner' 
+                        : 'text-[#b4b4b4] hover:bg-[#212121] hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate flex-1 pr-1">
+                      <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${currentSessionId === session.id ? 'text-cyan-400' : 'text-[#5f5f5f]'}`} />
+                      <span className="truncate">{session.title}</span>
+                    </div>
+                    <button
+                      onClick={(e) => handleDeleteSession(session.id, e)}
+                      title="Delete Conversation"
+                      className="opacity-0 group-hover/item:opacity-100 p-1 hover:bg-[#2f2f2f] rounded text-[#8e8e8e] hover:text-red-500 transition-all flex-shrink-0"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="h-[1px] bg-[#2f2f2f] my-3" />
+
+              {/* Preset Simulators */}
               <div className="flex flex-col gap-1">
-                <p className="text-xs font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2">Anatomical Modules</p>
+                <p className="text-[10px] font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2">Preset Simulators</p>
                 {[
                   { label: "Coronary Circulation", model: "heart", text: "Explain coronary circulation in heart" },
                   { label: "Cerebral Cortex folds", model: "brain", text: "Explain folds of the cerebral cortex brain" },
@@ -419,14 +815,14 @@ export default function Page() {
                 ].map((item, index) => (
                   <button
                     key={index}
-                    onClick={() => {
-                      setActiveTab('chat');
+                    onClick={async () => {
+                      await handleNewSession(item.label, item.model);
                       handleSendMessage(item.text);
                     }}
                     className="flex items-center gap-2 w-full p-2 hover:bg-[#212121] text-[#b4b4b4] hover:text-white rounded-lg text-xs transition-colors text-left truncate"
                   >
-                    <Activity className="w-3.5 h-3.5 text-[#5f5f5f]" />
-                    {item.label}
+                    <Compass className="w-3.5 h-3.5 text-[#5f5f5f] flex-shrink-0" />
+                    <span className="truncate">{item.label}</span>
                   </button>
                 ))}
               </div>
@@ -452,24 +848,34 @@ export default function Page() {
           <div className="flex-1 flex flex-col bg-[#212121] overflow-hidden relative">
             
             {/* Header */}
-            <header className="h-14 border-b border-[#2f2f2f] flex items-center justify-between px-6 bg-[#212121] z-10">
-              <div className="flex items-center gap-3">
-                <span className="font-semibold text-white tracking-tight flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-cyan-400" />
-                  MedVis Clinical Dashboard
+            <header className="h-14 border-b border-[#2f2f2f] flex items-center justify-between px-4 sm:px-6 bg-[#212121] z-10">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                {!isSidebarOpen && (
+                  <button
+                    onClick={() => setIsSidebarOpen(true)}
+                    title="Expand Sidebar"
+                    className="p-2 mr-1 hover:bg-[#2f2f2f] border border-[#2f2f2f] rounded-lg text-[#b4b4b4] hover:text-white transition-colors flex-shrink-0"
+                  >
+                    <PanelLeftOpen className="w-4 h-4" />
+                  </button>
+                )}
+                <span className="font-semibold text-white tracking-tight flex items-center gap-2 text-sm sm:text-base truncate">
+                  <Activity className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                  <span className="truncate">MedVis <span className="hidden sm:inline">Clinical Dashboard</span><span className="sm:hidden">AI</span></span>
                 </span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-400 font-semibold tracking-wider uppercase">
+                <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-400 font-semibold tracking-wider uppercase hidden md:inline-block flex-shrink-0">
                   AI Core Active
                 </span>
               </div>
               
-              <div className="flex items-center gap-4 text-sm text-[#b4b4b4]">
+              <div className="flex items-center gap-3 sm:gap-4 text-sm text-[#b4b4b4] flex-shrink-0">
                 <button 
                   onClick={() => setShowDashboard(false)}
-                  className="hover:text-white flex items-center gap-1.5 transition-colors text-xs border border-[#3f3f3f] px-3 py-1 rounded hover:bg-[#2f2f2f]"
+                  className="hover:text-white flex items-center gap-1.5 transition-colors text-xs border border-[#3f3f3f] px-2.5 py-1 sm:px-3 sm:py-1 rounded hover:bg-[#2f2f2f]"
+                  title="Exit Simulator"
                 >
                   <LogOut className="w-3.5 h-3.5" />
-                  Exit Simulator
+                  <span className="hidden sm:inline">Exit Simulator</span>
                 </button>
               </div>
             </header>
@@ -572,7 +978,9 @@ export default function Page() {
                                 ? 'bg-[#2f2f2f] text-white rounded-tr-none' 
                                 : 'bg-[#171717]/80 border border-[#2f2f2f] text-[#ececec] rounded-tl-none space-y-4'
                             }`}>
-                              <p className="whitespace-pre-wrap text-sm">{msg.text}</p>
+                              <div className="space-y-1 mt-0.5">
+                                {renderMarkdown(msg.text)}
+                              </div>
 
                               {/* Deep link Visualizer CTA */}
                               {msg.sender === 'ai' && msg.suggestModel && (
@@ -646,47 +1054,75 @@ export default function Page() {
             )}
 
             {/* TAB CONTENT: 3D INTERACTIVE LAB */}
+            {/* TAB CONTENT: 3D INTERACTIVE LAB */}
             {activeTab === '3d' && (
-              <div className="flex-1 flex overflow-hidden">
+              <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden bg-[#1b1b1b]">
                 
                 {/* 3D Viewport Column */}
-                <div className="flex-1 relative flex flex-col bg-[#1b1b1b] border-r border-[#2f2f2f]">
+                <div className={`w-full md:flex-1 relative flex flex-col bg-[#1b1b1b] border-b md:border-b-0 md:border-r border-[#2f2f2f] overflow-hidden transition-all duration-300 min-h-[320px] ${showHUD ? 'h-[45vh] md:h-full' : 'h-[calc(100vh-70px)] md:h-full'}`}>
                   
-                  {/* Top Model Options */}
-                  <div className="absolute top-4 left-4 z-10 flex gap-1.5 bg-[#171717]/90 border border-[#2f2f2f] p-1.5 rounded-xl shadow-xl backdrop-blur-sm">
-                    {[
-                      { type: 'heart', label: 'Cardio Heart', icon: Heart },
-                      { type: 'brain', label: 'Cerebral Brain', icon: Brain },
-                      { type: 'lungs', label: 'Pulmonary Lungs', icon: Activity }
-                    ].map((model) => {
-                      const Icon = model.icon;
-                      return (
-                        <button
-                          key={model.type}
-                          onClick={() => {
-                            setSelectedModel(model.type as any);
-                            setActiveStructure(
-                              model.type === 'heart' ? 'Left Ventricle' : 
-                              model.type === 'brain' ? 'Cerebral Cortex' : 
-                              'Pulmonary Lobes'
-                            );
-                          }}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${selectedModel === model.type ? 'bg-cyan-950 border border-cyan-800 text-cyan-400 shadow' : 'text-[#b4b4b4] hover:text-white'}`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                          {model.label}
-                        </button>
-                      );
-                    })}
+                  {/* Top Model Options and Label Toggle Button */}
+                  <div className="absolute top-3 left-3 right-3 md:right-auto z-30 flex items-center justify-between md:justify-start gap-2">
+                    <div className="flex gap-1 bg-[#171717]/90 border border-[#2f2f2f] p-1 rounded-xl shadow-xl backdrop-blur-sm overflow-x-auto max-w-[calc(100vw-11.5rem)] md:max-w-none scrollbar-none">
+                      {[
+                        { type: 'heart', label: 'Heart', icon: Heart },
+                        { type: 'brain', label: 'Brain', icon: Brain },
+                        { type: 'lungs', label: 'Lungs', icon: Activity }
+                      ].map((model) => {
+                        const Icon = model.icon;
+                        return (
+                          <button
+                            key={model.type}
+                            onClick={() => {
+                              setSelectedModel(model.type as any);
+                              setActiveStructure(
+                                model.type === 'heart' ? 'Left Ventricle' : 
+                                model.type === 'brain' ? 'Cerebral Cortex' : 
+                                'Pulmonary Lobes'
+                              );
+                            }}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] sm:text-xs font-semibold tracking-wide transition-all flex-shrink-0 ${selectedModel === model.type ? 'bg-cyan-950 border border-cyan-800 text-cyan-400 shadow' : 'text-[#b4b4b4] hover:text-white'}`}
+                          >
+                            <Icon className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                            {model.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {/* Toggle Labels ON/OFF Button */}
+                      <button
+                        onClick={() => setShowLabels(!showLabels)}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] sm:text-xs font-bold border transition-all shadow-xl backdrop-blur-sm ${showLabels ? 'bg-cyan-950 border-cyan-800 text-cyan-400' : 'bg-[#171717]/90 border-[#2f2f2f] text-[#b4b4b4] hover:text-white'}`}
+                      >
+                        <Tag className="w-3 h-3" />
+                        <span>Labels: {showLabels ? 'ON' : 'OFF'}</span>
+                      </button>
+
+                      {/* Toggle HUD ON/OFF Button for Mobile Only */}
+                      <button
+                        onClick={() => setShowHUD(!showHUD)}
+                        className={`md:hidden flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] sm:text-xs font-bold border transition-all shadow-xl backdrop-blur-sm ${showHUD ? 'bg-cyan-950 border-cyan-800 text-cyan-400' : 'bg-[#171717]/90 border-[#2f2f2f] text-[#b4b4b4] hover:text-white'}`}
+                      >
+                        <Sliders className="w-3 h-3" />
+                        <span>HUD: {showHUD ? 'ON' : 'OFF'}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* 3D Render Output */}
                   <div className="flex-1 w-full h-full flex items-center justify-center">
-                    <ThreeDModel type={selectedModel} />
+                    <ThreeDModel 
+                      type={selectedModel} 
+                      showLabels={showLabels} 
+                      activeStructure={activeStructure}
+                      onStructureSelect={setActiveStructure}
+                    />
                   </div>
 
-                  {/* Live HUD Information Overlay */}
-                  <div className="absolute bottom-4 left-4 right-4 z-10 flex justify-between items-end pointer-events-none">
+                  {/* Desktop Only: Live HUD Information Overlay */}
+                  <div className="hidden md:flex absolute bottom-4 left-4 right-4 z-10 justify-between items-end pointer-events-none">
                     <div className="bg-[#171717]/95 border border-[#2f2f2f] p-4 rounded-xl shadow-xl max-w-sm pointer-events-auto backdrop-blur-sm">
                       <p className="text-[10px] uppercase font-bold text-cyan-400 tracking-widest mb-1 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
@@ -707,8 +1143,24 @@ export default function Page() {
 
                 </div>
 
+                {/* Mobile Only Info Box (Rendered statically underneath the 3D canvas so it doesn't overlap the visualizer) */}
+                {showHUD && (
+                  <div className="block md:hidden bg-[#171717] px-4 py-4 border-b border-[#2f2f2f]">
+                    <div className="bg-[#1b1b1b] border border-[#2f2f2f] p-4 rounded-xl shadow-md">
+                      <p className="text-[9px] uppercase font-bold text-cyan-400 tracking-widest mb-1 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
+                        Active Structure
+                      </p>
+                      <h4 className="text-sm font-bold text-white mb-1.5">{activeStructure}</h4>
+                      <p className="text-xs text-[#b4b4b4] leading-relaxed">
+                        {anatomicalData.info[activeStructure as keyof typeof anatomicalData.info] || "Select an anatomical structure to highlight."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Right Structure Selection & Medical Details Panel */}
-                <div className="w-80 bg-[#171717] p-5 flex flex-col justify-between overflow-y-auto select-none border-l border-[#2f2f2f]">
+                <div className={`w-full md:w-80 bg-[#171717] p-5 flex-col justify-between md:overflow-y-auto select-none border-t md:border-t-0 md:border-l border-[#2f2f2f] ${showHUD ? 'flex md:flex' : 'hidden md:flex'}`}>
                   <div className="space-y-6">
                     <div>
                       <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest mb-1">
