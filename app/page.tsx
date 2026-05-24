@@ -37,14 +37,14 @@ interface Message {
   id: string;
   sender: 'user' | 'ai';
   text: string;
-  suggestModel?: 'heart' | 'brain' | 'lungs';
+  suggestModel?: 'heart' | 'brain' | 'lungs' | 'kidneys';
   suggestLabel?: string;
 }
 
 export default function Page() {
   const [showDashboard, setShowDashboard] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | '3d'>('chat');
-  const [selectedModel, setSelectedModel] = useState<'heart' | 'brain' | 'lungs'>('heart');
+  const [selectedModel, setSelectedModel] = useState<'heart' | 'brain' | 'lungs' | 'kidneys'>('heart');
   const [activeStructure, setActiveStructure] = useState<string>('Left Ventricle');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
@@ -233,7 +233,7 @@ export default function Page() {
       const aiResponseText = data.choices?.[0]?.message?.content || 'Sorry, I was unable to process that response. Please try again.';
 
       // Determine model suggestion dynamically based on query or response keywords
-      let modelSuggestion: 'heart' | 'brain' | 'lungs' | undefined;
+      let modelSuggestion: 'heart' | 'brain' | 'lungs' | 'kidneys' | undefined;
       let labelSuggestion = "";
       
       const lowerText = (query + " " + aiResponseText).toLowerCase();
@@ -246,6 +246,9 @@ export default function Page() {
       } else if (lowerText.includes('lung') || lowerText.includes('respir') || lowerText.includes('breath') || lowerText.includes('oxygen') || lowerText.includes('pulmonary') || lowerText.includes('alveoli')) {
         modelSuggestion = 'lungs';
         labelSuggestion = 'Trachea & Pulmonary Lobes';
+      } else if (lowerText.includes('kidney') || lowerText.includes('renal') || lowerText.includes('nephron') || lowerText.includes('urine') || lowerText.includes('glomerulus')) {
+        modelSuggestion = 'kidneys';
+        labelSuggestion = 'Renal Cortex & Medulla';
       }
 
       setMessages(prev => [...prev, {
@@ -267,12 +270,13 @@ export default function Page() {
     }
   };
 
-  const handleLaunch3D = (model: 'heart' | 'brain' | 'lungs', label: string) => {
+  const handleLaunch3D = (model: 'heart' | 'brain' | 'lungs' | 'kidneys', label: string) => {
     setSelectedModel(model);
     setActiveStructure(
       model === 'heart' ? 'Left Ventricle' : 
       model === 'brain' ? 'Cerebral Cortex' : 
-      'Pulmonary Lobes'
+      model === 'lungs' ? 'Pulmonary Lobes' :
+      'Renal Cortex'
     );
     setActiveTab('3d');
   };
@@ -301,6 +305,18 @@ export default function Page() {
           "Cerebellum": "Positioned underneath the posterior cerebral hemispheres. Coordinates smooth, precise voluntary motor movements and body equilibrium balance.",
           "Brainstem Loop": "Critical pathway connecting the cerebrum to the spinal cord. Directly regulates cardiac rate, respiratory rate, and autonomic reflexes.",
           "Neural Synapses": "Point-to-point connections where chemical neurotransmitters bridge electric nerve impulses across neural cell pathways."
+        }
+      };
+    } else if (selectedModel === 'kidneys') {
+      return {
+        title: "Renal System",
+        subtitle: "Interactive 3D Filtering Kidneys",
+        structures: ["Renal Cortex", "Renal Medulla", "Ureter Tube", "Renal Pelvis"],
+        info: {
+          "Renal Cortex": "The outer region of the kidney containing millions of nephrons and glomeruli where initial blood ultrafiltration occurs.",
+          "Renal Medulla": "The inner region composed of renal pyramids. It concentrates urine through the Loop of Henle by reabsorbing water and essential salts.",
+          "Ureter Tube": "The muscular ducts that actively propel concentrated urine from the kidneys down into the urinary bladder via peristalsis.",
+          "Renal Pelvis": "The funnel-like dilated part of the ureter in the kidney. It acts as a funnel for urine flowing to the ureter."
         }
       };
     } else {
@@ -767,7 +783,8 @@ export default function Page() {
                 {[
                   { label: "Coronary Circulation", model: "heart", text: "Explain coronary circulation in heart" },
                   { label: "Cerebral Cortex folds", model: "brain", text: "Explain folds of the cerebral cortex brain" },
-                  { label: "Pulmonary Inhalation", model: "lungs", text: "Explain pulmonary breathing mechanics in lungs" }
+                  { label: "Pulmonary Inhalation", model: "lungs", text: "Explain pulmonary breathing mechanics in lungs" },
+                  { label: "Renal Filtration", model: "kidneys", text: "Explain how kidneys filter blood and produce urine" }
                 ].map((item, index) => (
                   <button
                     key={index}
@@ -1046,7 +1063,8 @@ export default function Page() {
                       {[
                         { type: 'heart', label: 'Heart', icon: Heart },
                         { type: 'brain', label: 'Brain', icon: Brain },
-                        { type: 'lungs', label: 'Lungs', icon: Activity }
+                        { type: 'lungs', label: 'Lungs', icon: Activity },
+                        { type: 'kidneys', label: 'Kidneys', icon: Activity }
                       ].map((model) => {
                         const Icon = model.icon;
                         return (
@@ -1057,7 +1075,8 @@ export default function Page() {
                               setActiveStructure(
                                 model.type === 'heart' ? 'Left Ventricle' : 
                                 model.type === 'brain' ? 'Cerebral Cortex' : 
-                                'Pulmonary Lobes'
+                                model.type === 'lungs' ? 'Pulmonary Lobes' :
+                                'Renal Cortex'
                               );
                             }}
                             className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] sm:text-xs font-semibold tracking-wide transition-all flex-shrink-0 ${selectedModel === model.type ? 'bg-cyan-950 border border-cyan-800 text-cyan-400 shadow' : 'text-[#b4b4b4] hover:text-white'}`}

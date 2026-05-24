@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 interface ThreeDModelProps {
-  type: "heart" | "brain" | "lungs";
+  type: "heart" | "brain" | "lungs" | "kidneys";
   pulse?: boolean;
   showLabels?: boolean;
   activeStructure?: string;
@@ -30,6 +30,12 @@ const nodePositionsMap = {
     "Trachea Conduit": new THREE.Vector3(0, 0.95, 0),
     "Bronchial Tree": new THREE.Vector3(0, 0.15, 0),
     "Alveoli Capillaries": new THREE.Vector3(-1.05, -0.75, 0.1)
+  },
+  kidneys: {
+    "Renal Cortex": new THREE.Vector3(-0.75, 0.45, 0.2),
+    "Renal Medulla": new THREE.Vector3(-0.55, 0, 0.1),
+    "Ureter Tube": new THREE.Vector3(-0.35, -1.1, -0.1),
+    "Renal Pelvis": new THREE.Vector3(-0.25, -0.2, 0)
   }
 };
 
@@ -49,7 +55,12 @@ const labelOffsets: { [key: string]: { dx: number; dy: number } } = {
   "Pulmonary Lobes": { dx: 18, dy: 10 },
   "Trachea Conduit": { dx: -18, dy: -14 },
   "Bronchial Tree": { dx: 18, dy: -8 },
-  "Alveoli Capillaries": { dx: -18, dy: 10 }
+  "Alveoli Capillaries": { dx: -18, dy: 10 },
+  // Kidneys
+  "Renal Cortex": { dx: -18, dy: -12 },
+  "Renal Medulla": { dx: -20, dy: 6 },
+  "Ureter Tube": { dx: -15, dy: 15 },
+  "Renal Pelvis": { dx: 18, dy: -5 }
 };
 
 export function ThreeDModel({
@@ -203,7 +214,7 @@ export function ThreeDModel({
       particles = createParticles(120, 2.6, 0xffffff);
       mainMesh.add(particles);
 
-    } else {
+    } else if (type === "lungs") {
       // Lungs
       mainMesh = new THREE.Group();
       
@@ -239,6 +250,64 @@ export function ThreeDModel({
 
       // Oxygen particles
       particles = createParticles(100, 2.6, 0x06b6d4);
+      mainMesh.add(particles);
+
+    } else if (type === "kidneys") {
+      // Kidneys
+      mainMesh = new THREE.Group();
+      
+      const kidneyMat = new THREE.MeshPhongMaterial({
+        color: 0x8b5cf6, // vibrant purple/indigo color
+        emissive: 0x2e1065,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.85
+      });
+
+      // Left Kidney
+      const leftKidneyGeo = new THREE.SphereGeometry(1.0, 24, 24);
+      const posAttr = leftKidneyGeo.attributes.position;
+      for (let i = 0; i < posAttr.count; i++) {
+        const x = posAttr.getX(i);
+        const y = posAttr.getY(i);
+        // indent the medial side to make a bean shape
+        if (x > 0) {
+          posAttr.setX(i, x * 0.3);
+        }
+      }
+      leftKidneyGeo.computeVertexNormals();
+
+      const leftKidney = new THREE.Mesh(leftKidneyGeo, kidneyMat);
+      leftKidney.scale.set(0.85, 1.4, 0.7);
+      leftKidney.position.set(-0.65, 0, 0);
+      leftKidney.rotation.z = Math.PI / 16;
+      mainMesh.add(leftKidney);
+
+      // Right Kidney
+      const rightKidney = new THREE.Mesh(leftKidneyGeo, kidneyMat);
+      rightKidney.scale.set(-0.85, 1.4, 0.7); // flip horizontally to face medial
+      rightKidney.position.set(0.65, -0.2, 0); // slightly lower
+      rightKidney.rotation.z = -Math.PI / 16;
+      mainMesh.add(rightKidney);
+
+      // Ureters
+      const ureterMat = new THREE.MeshPhongMaterial({ color: 0xc4b5fd, wireframe: true, opacity: 0.5, transparent: true });
+      const ureterGeo = new THREE.CylinderGeometry(0.1, 0.1, 1.8, 12, 4, true);
+      
+      const leftUreter = new THREE.Mesh(ureterGeo, ureterMat);
+      leftUreter.position.set(-0.35, -1.0, -0.1);
+      leftUreter.rotation.z = -Math.PI / 18;
+      mainMesh.add(leftUreter);
+
+      const rightUreter = new THREE.Mesh(ureterGeo, ureterMat);
+      rightUreter.position.set(0.35, -1.2, -0.1);
+      rightUreter.rotation.z = Math.PI / 18;
+      mainMesh.add(rightUreter);
+
+      group.add(mainMesh);
+
+      // Filtration particles
+      particles = createParticles(90, 2.4, 0x8b5cf6);
       mainMesh.add(particles);
     }
 
@@ -309,6 +378,9 @@ export function ThreeDModel({
         } else if (type === "lungs") {
           // lung deep inhalation cycle
           pulseScale = 1.0 + Math.sin(elapsedTime * 1.25) * 0.06;
+        } else if (type === "kidneys") {
+          // steady slow pulsing for filtration
+          pulseScale = 1.0 + Math.sin(elapsedTime * 0.8) * 0.04;
         } else {
           // brain slow pulsing
           pulseScale = 1.0 + Math.sin(elapsedTime * 1.0) * 0.03;
