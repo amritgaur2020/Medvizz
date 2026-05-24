@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 interface ThreeDModelProps {
   type: "heart" | "brain" | "lungs" | "kidneys";
@@ -63,7 +64,12 @@ const labelOffsets: { [key: string]: { dx: number; dy: number } } = {
   "Renal Cortex": { dx: -18, dy: -12 },
   "Renal Medulla": { dx: -20, dy: 6 },
   "Ureter Tube": { dx: -15, dy: 15 },
-  "Renal Pelvis": { dx: 18, dy: -5 }
+  "Renal Pelvis": { dx: 18, dy: -5 },
+  // Custom Dynamic Neural4D labels
+  "External Organ Surface": { dx: -22, dy: 15 },
+  "Veins & Blood Streams": { dx: 22, dy: -12 },
+  "Natural Organ Coloration": { dx: 18, dy: 20 },
+  "Internal Cavity & Cross-section": { dx: -20, dy: -15 }
 };
 
 export function ThreeDModel({
@@ -115,8 +121,8 @@ export function ThreeDModel({
     const group = new THREE.Group();
     scene.add(group);
 
-    let mainMesh: THREE.Object3D;
-    let particles: THREE.Points;
+    let mainMesh: any;
+    let particles: any;
 
     // Helper: Add Particle Cloud
     const createParticles = (count: number, radius: number, color: number) => {
@@ -143,152 +149,198 @@ export function ThreeDModel({
       return new THREE.Points(pGeometry, pMaterial);
     };
 
-    if (type === "heart") {
-      mainMesh = new THREE.Group();
-      
-      const heartMat = new THREE.MeshPhongMaterial({
-        color: 0xef4444,
-        emissive: 0x3b0712,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.8
-      });
-      const ventGeo = new THREE.SphereGeometry(1.6, 24, 24);
-      const posAttr = ventGeo.attributes.position;
-      for (let i = 0; i < posAttr.count; i++) {
-        const x = posAttr.getX(i);
-        const y = posAttr.getY(i);
-        const z = posAttr.getZ(i);
-        if (y < 0) {
-          posAttr.setX(i, x * (1 + y * 0.3));
-          posAttr.setZ(i, z * (1 + y * 0.3));
+    const renderProcedural = () => {
+      if (type === "heart") {
+        const heartMat = new THREE.MeshPhongMaterial({
+          color: 0xef4444,
+          emissive: 0x3b0712,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.8
+        });
+        const ventGeo = new THREE.SphereGeometry(1.6, 24, 24);
+        const posAttr = ventGeo.attributes.position;
+        for (let i = 0; i < posAttr.count; i++) {
+          const x = posAttr.getX(i);
+          const y = posAttr.getY(i);
+          const z = posAttr.getZ(i);
+          if (y < 0) {
+            posAttr.setX(i, x * (1 + y * 0.3));
+            posAttr.setZ(i, z * (1 + y * 0.3));
+          }
         }
+        ventGeo.computeVertexNormals();
+
+        const ventricles = new THREE.Mesh(ventGeo, heartMat);
+        ventricles.scale.set(1, 1.25, 0.95);
+        mainMesh.add(ventricles);
+
+        const aortaMat = new THREE.MeshPhongMaterial({ color: 0x06b6d4, wireframe: true });
+        const aortaGeo = new THREE.TorusGeometry(0.8, 0.22, 12, 32, Math.PI);
+        const aorta = new THREE.Mesh(aortaGeo, aortaMat);
+        aorta.position.set(0.3, 1.2, -0.2);
+        aorta.rotation.z = -Math.PI / 6;
+        mainMesh.add(aorta);
+
+        particles = createParticles(100, 2.4, 0xef4444);
+        mainMesh.add(particles);
+
+      } else if (type === "brain") {
+        const brainMat = new THREE.MeshPhongMaterial({
+          color: 0x06b6d4,
+          emissive: 0x083344,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.85
+        });
+
+        const leftH = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 24), brainMat);
+        leftH.scale.set(1.35, 1.05, 0.8);
+        leftH.position.set(-0.55, 0.15, 0);
+        mainMesh.add(leftH);
+
+        const rightH = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 24), brainMat);
+        rightH.scale.set(1.35, 1.05, 0.8);
+        rightH.position.set(0.55, 0.15, 0);
+        mainMesh.add(rightH);
+
+        const cbMat = new THREE.MeshPhongMaterial({ color: 0xffffff, wireframe: true, opacity: 0.5, transparent: true });
+        const cerebellum = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 16), cbMat);
+        cerebellum.position.set(0, -0.9, 0.65);
+        cerebellum.scale.set(1.15, 0.65, 0.95);
+        mainMesh.add(cerebellum);
+
+        particles = createParticles(120, 2.6, 0xffffff);
+        mainMesh.add(particles);
+
+      } else if (type === "lungs") {
+        const lungMat = new THREE.MeshPhongMaterial({
+          color: 0x14b8a6,
+          emissive: 0x042f2e,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.8
+        });
+
+        const leftLung = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 24), lungMat);
+        leftLung.scale.set(0.85, 1.75, 0.8);
+        leftLung.position.set(-1.05, 0, 0);
+        leftLung.rotation.z = Math.PI / 16;
+        mainMesh.add(leftLung);
+
+        const rightLung = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 24), lungMat);
+        rightLung.scale.set(0.85, 1.75, 0.8);
+        rightLung.position.set(1.05, 0, 0);
+        rightLung.rotation.z = -Math.PI / 16;
+        mainMesh.add(rightLung);
+
+        const tracheaMat = new THREE.MeshPhongMaterial({ color: 0xffffff, wireframe: true });
+        const trachea = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 2.0, 12, 4, true), tracheaMat);
+        trachea.position.set(0, 1.0, 0);
+        mainMesh.add(trachea);
+
+        particles = createParticles(100, 2.6, 0x06b6d4);
+        mainMesh.add(particles);
+
+      } else if (type === "kidneys") {
+        const kidneyMat = new THREE.MeshPhongMaterial({
+          color: 0x8b5cf6,
+          emissive: 0x2e1065,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.85
+        });
+
+        const leftKidneyGeo = new THREE.SphereGeometry(1.0, 24, 24);
+        const posAttr = leftKidneyGeo.attributes.position;
+        for (let i = 0; i < posAttr.count; i++) {
+          const x = posAttr.getX(i);
+          if (x > 0) posAttr.setX(i, x * 0.3);
+        }
+        leftKidneyGeo.computeVertexNormals();
+
+        const leftKidney = new THREE.Mesh(leftKidneyGeo, kidneyMat);
+        leftKidney.scale.set(0.85, 1.4, 0.7);
+        leftKidney.position.set(-0.65, 0, 0);
+        leftKidney.rotation.z = Math.PI / 16;
+        mainMesh.add(leftKidney);
+
+        const rightKidney = new THREE.Mesh(leftKidneyGeo, kidneyMat);
+        rightKidney.scale.set(-0.85, 1.4, 0.7);
+        rightKidney.position.set(0.65, -0.2, 0);
+        rightKidney.rotation.z = -Math.PI / 16;
+        mainMesh.add(rightKidney);
+
+        const ureterMat = new THREE.MeshPhongMaterial({ color: 0xc4b5fd, wireframe: true, opacity: 0.5, transparent: true });
+        const ureterGeo = new THREE.CylinderGeometry(0.1, 0.1, 1.8, 12, 4, true);
+        
+        const leftUreter = new THREE.Mesh(ureterGeo, ureterMat);
+        leftUreter.position.set(-0.35, -1.0, -0.1);
+        leftUreter.rotation.z = -Math.PI / 18;
+        mainMesh.add(leftUreter);
+
+        const rightUreter = new THREE.Mesh(ureterGeo, ureterMat);
+        rightUreter.position.set(0.35, -1.2, -0.1);
+        rightUreter.rotation.z = Math.PI / 18;
+        mainMesh.add(rightUreter);
+
+        particles = createParticles(90, 2.4, 0x8b5cf6);
+        mainMesh.add(particles);
       }
-      ventGeo.computeVertexNormals();
+    };
 
-      const ventricles = new THREE.Mesh(ventGeo, heartMat);
-      ventricles.scale.set(1, 1.25, 0.95);
-      mainMesh.add(ventricles);
+    mainMesh = new THREE.Group();
+    group.add(mainMesh);
 
-      const aortaMat = new THREE.MeshPhongMaterial({ color: 0x06b6d4, wireframe: true });
-      const aortaGeo = new THREE.TorusGeometry(0.8, 0.22, 12, 32, Math.PI);
-      const aorta = new THREE.Mesh(aortaGeo, aortaMat);
-      aorta.position.set(0.3, 1.2, -0.2);
-      aorta.rotation.z = -Math.PI / 6;
-      mainMesh.add(aorta);
-
-      group.add(mainMesh);
-      particles = createParticles(100, 2.4, 0xef4444);
-      mainMesh.add(particles);
-
-    } else if (type === "brain") {
-      mainMesh = new THREE.Group();
-      const brainMat = new THREE.MeshPhongMaterial({
-        color: 0x06b6d4,
-        emissive: 0x083344,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.85
-      });
-
-      const leftH = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 24), brainMat);
-      leftH.scale.set(1.35, 1.05, 0.8);
-      leftH.position.set(-0.55, 0.15, 0);
-      mainMesh.add(leftH);
-
-      const rightH = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 24), brainMat);
-      rightH.scale.set(1.35, 1.05, 0.8);
-      rightH.position.set(0.55, 0.15, 0);
-      mainMesh.add(rightH);
-
-      const cbMat = new THREE.MeshPhongMaterial({ color: 0xffffff, wireframe: true, opacity: 0.5, transparent: true });
-      const cerebellum = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 16), cbMat);
-      cerebellum.position.set(0, -0.9, 0.65);
-      cerebellum.scale.set(1.15, 0.65, 0.95);
-      mainMesh.add(cerebellum);
-
-      group.add(mainMesh);
-      particles = createParticles(120, 2.6, 0xffffff);
-      mainMesh.add(particles);
-
-    } else if (type === "lungs") {
-      mainMesh = new THREE.Group();
-      const lungMat = new THREE.MeshPhongMaterial({
-        color: 0x14b8a6,
-        emissive: 0x042f2e,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.8
-      });
-
-      const leftLung = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 24), lungMat);
-      leftLung.scale.set(0.85, 1.75, 0.8);
-      leftLung.position.set(-1.05, 0, 0);
-      leftLung.rotation.z = Math.PI / 16;
-      mainMesh.add(leftLung);
-
-      const rightLung = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 24), lungMat);
-      rightLung.scale.set(0.85, 1.75, 0.8);
-      rightLung.position.set(1.05, 0, 0);
-      rightLung.rotation.z = -Math.PI / 16;
-      mainMesh.add(rightLung);
-
-      const tracheaMat = new THREE.MeshPhongMaterial({ color: 0xffffff, wireframe: true });
-      const trachea = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 2.0, 12, 4, true), tracheaMat);
-      trachea.position.set(0, 1.0, 0);
-      mainMesh.add(trachea);
-
-      group.add(mainMesh);
-      particles = createParticles(100, 2.6, 0x06b6d4);
-      mainMesh.add(particles);
-
-    } else if (type === "kidneys") {
-      mainMesh = new THREE.Group();
-      const kidneyMat = new THREE.MeshPhongMaterial({
-        color: 0x8b5cf6,
-        emissive: 0x2e1065,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.85
-      });
-
-      const leftKidneyGeo = new THREE.SphereGeometry(1.0, 24, 24);
-      const posAttr = leftKidneyGeo.attributes.position;
-      for (let i = 0; i < posAttr.count; i++) {
-        const x = posAttr.getX(i);
-        if (x > 0) posAttr.setX(i, x * 0.3);
-      }
-      leftKidneyGeo.computeVertexNormals();
-
-      const leftKidney = new THREE.Mesh(leftKidneyGeo, kidneyMat);
-      leftKidney.scale.set(0.85, 1.4, 0.7);
-      leftKidney.position.set(-0.65, 0, 0);
-      leftKidney.rotation.z = Math.PI / 16;
-      mainMesh.add(leftKidney);
-
-      const rightKidney = new THREE.Mesh(leftKidneyGeo, kidneyMat);
-      rightKidney.scale.set(-0.85, 1.4, 0.7);
-      rightKidney.position.set(0.65, -0.2, 0);
-      rightKidney.rotation.z = -Math.PI / 16;
-      mainMesh.add(rightKidney);
-
-      const ureterMat = new THREE.MeshPhongMaterial({ color: 0xc4b5fd, wireframe: true, opacity: 0.5, transparent: true });
-      const ureterGeo = new THREE.CylinderGeometry(0.1, 0.1, 1.8, 12, 4, true);
-      
-      const leftUreter = new THREE.Mesh(ureterGeo, ureterMat);
-      leftUreter.position.set(-0.35, -1.0, -0.1);
-      leftUreter.rotation.z = -Math.PI / 18;
-      mainMesh.add(leftUreter);
-
-      const rightUreter = new THREE.Mesh(ureterGeo, ureterMat);
-      rightUreter.position.set(0.35, -1.2, -0.1);
-      rightUreter.rotation.z = Math.PI / 18;
-      mainMesh.add(rightUreter);
-
-      group.add(mainMesh);
-      particles = createParticles(90, 2.4, 0x8b5cf6);
-      mainMesh.add(particles);
+    if (neural4dModelUrl && neural4dModelUrl !== 'fallback') {
+      const loader = new GLTFLoader();
+      console.log("[ThreeDModel] Dynamic load of Neural4D model URL:", neural4dModelUrl);
+      loader.load(
+        neural4dModelUrl,
+        (gltf: any) => {
+          console.log("[ThreeDModel] GLTF loaded successfully!", gltf);
+          const loadedModel = gltf.scene;
+          
+          // Auto-adjust scale & position
+          const box = new THREE.Box3().setFromObject(loadedModel);
+          const size = box.getSize(new THREE.Vector3());
+          const center = box.getCenter(new THREE.Vector3());
+          
+          loadedModel.position.x += (loadedModel.position.x - center.x);
+          loadedModel.position.y += (loadedModel.position.y - center.y);
+          loadedModel.position.z += (loadedModel.position.z - center.z);
+          
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const scale = maxDim > 0 ? 3.0 / maxDim : 1.0;
+          loadedModel.scale.set(scale, scale, scale);
+          
+          loadedModel.traverse((child: any) => {
+            if ((child as any).isMesh) {
+              const mesh = child as any;
+              if (mesh.material) {
+                if (Array.isArray(mesh.material)) {
+                  mesh.material.forEach((m: any) => { m.side = THREE.DoubleSide; });
+                } else {
+                  mesh.material.side = THREE.DoubleSide;
+                }
+              }
+            }
+          });
+          
+          mainMesh.add(loadedModel);
+          particles = createParticles(150, 2.8, 0x06b6d4);
+          mainMesh.add(particles);
+        },
+        undefined,
+        (err: any) => {
+          console.error("[ThreeDModel] GLTF load error, falling back to procedural", err);
+          renderProcedural();
+        }
+      );
+    } else {
+      renderProcedural();
     }
+
 
     let isDragging = false;
     let previousMousePosition = { x: 0, y: 0 };
@@ -332,9 +384,19 @@ export function ThreeDModel({
       if (particles) particles.rotation.y -= 0.004;
       renderer.render(scene, camera);
 
-      const activePositions = nodePositionsMap[type];
+      let activePositions = nodePositionsMap[type] as Record<string, any>;
+      
+      if (neural4dModelUrl && neural4dModelUrl !== 'fallback') {
+        activePositions = {
+          "External Organ Surface": new THREE.Vector3(-1.2, 0.8, 0.5),
+          "Veins & Blood Streams": new THREE.Vector3(1.0, -0.4, 0.4),
+          "Natural Organ Coloration": new THREE.Vector3(0.0, 1.2, -0.3),
+          "Internal Cavity & Cross-section": new THREE.Vector3(-0.4, -1.0, 0.2)
+        };
+      }
+      
       const positionsArray: Array<{ name: string; x: number; y: number; dx: number; dy: number }> = [];
-      Object.entries(activePositions).forEach(([name, localPos]) => {
+      Object.entries(activePositions).forEach(([name, localPos]: [string, any]) => {
         const tempV = new THREE.Vector3().copy(localPos).applyMatrix4(group.matrixWorld).project(camera);
         const x = (tempV.x * 0.5 + 0.5) * mount.clientWidth;
         const y = (-(tempV.y * 0.5) + 0.5) * mount.clientHeight;

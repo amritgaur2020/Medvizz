@@ -102,16 +102,52 @@ RESPONSE REQUIREMENTS:
     let modelSuggestion: string | null = null;
     let labelSuggestion: string | null = null;
 
-    const lowerText = (lastMessage.text + ' ' + aiResponseText).toLowerCase();
-    if (lowerText.includes('heart') || lowerText.includes('cardio') || lowerText.includes('coronary') || lowerText.includes('myocardium') || lowerText.includes('ventricle') || lowerText.includes('atrium') || lowerText.includes('aorta')) {
-      modelSuggestion = 'heart';
-      labelSuggestion = 'Aorta & Ventricles';
-    } else if (lowerText.includes('brain') || lowerText.includes('cerebral') || lowerText.includes('synap') || lowerText.includes('neural') || lowerText.includes('cortex') || lowerText.includes('neuron')) {
-      modelSuggestion = 'brain';
-      labelSuggestion = 'Cerebral Cortex';
-    } else if (lowerText.includes('lung') || lowerText.includes('respir') || lowerText.includes('breath') || lowerText.includes('pulmonary') || lowerText.includes('alveoli') || lowerText.includes('trachea')) {
+    // 1. Check direct user query intent first
+    const lowerQuery = lastMessage.text.toLowerCase();
+    
+    if (lowerQuery.includes('lung') || lowerQuery.includes('respir') || lowerQuery.includes('breath') || lowerQuery.includes('pulmonary') || lowerQuery.includes('alveoli') || lowerQuery.includes('trachea')) {
       modelSuggestion = 'lungs';
       labelSuggestion = 'Trachea & Pulmonary Lobes';
+    } else if (lowerQuery.includes('urinary') || lowerQuery.includes('kidney') || lowerQuery.includes('renal') || lowerQuery.includes('nephron') || lowerQuery.includes('bladder') || lowerQuery.includes('urethra') || lowerQuery.includes('ureter')) {
+      modelSuggestion = 'kidneys';
+      labelSuggestion = 'Urinary System';
+    } else if (lowerQuery.includes('brain') || lowerQuery.includes('cerebral') || lowerQuery.includes('synap') || lowerQuery.includes('neural') || lowerQuery.includes('cortex') || lowerQuery.includes('neuron') || lowerQuery.includes('nervous')) {
+      modelSuggestion = 'brain';
+      labelSuggestion = 'Cerebral Cortex';
+    } else if (lowerQuery.includes('heart') || lowerQuery.includes('cardio') || lowerQuery.includes('coronary') || lowerQuery.includes('myocardium') || lowerQuery.includes('ventricle') || lowerQuery.includes('atrium') || lowerQuery.includes('aorta') || lowerQuery.includes('circulation')) {
+      modelSuggestion = 'heart';
+      labelSuggestion = 'Aorta & Ventricles';
+    }
+
+    // 2. Fallback to AI response text keywords if query is neutral
+    if (!modelSuggestion) {
+      const lowerResponse = aiResponseText.toLowerCase();
+      
+      if (lowerResponse.includes('lung') || lowerResponse.includes('respir') || lowerResponse.includes('breath') || lowerResponse.includes('pulmonary') || lowerResponse.includes('alveoli') || lowerResponse.includes('trachea')) {
+        modelSuggestion = 'lungs';
+        labelSuggestion = 'Trachea & Pulmonary Lobes';
+      } else if (lowerResponse.includes('urinary') || lowerResponse.includes('kidney') || lowerResponse.includes('renal') || lowerResponse.includes('nephron') || lowerResponse.includes('bladder') || lowerResponse.includes('urethra') || lowerResponse.includes('ureter')) {
+        modelSuggestion = 'kidneys';
+        labelSuggestion = 'Urinary System';
+      } else if (lowerResponse.includes('brain') || lowerResponse.includes('cerebral') || lowerResponse.includes('synap') || lowerResponse.includes('neural') || lowerResponse.includes('cortex') || lowerResponse.includes('neuron') || lowerResponse.includes('nervous')) {
+        modelSuggestion = 'brain';
+        labelSuggestion = 'Cerebral Cortex';
+      } else if (lowerResponse.includes('heart') || lowerResponse.includes('cardio') || lowerResponse.includes('coronary') || lowerResponse.includes('myocardium') || lowerResponse.includes('ventricle') || lowerResponse.includes('atrium') || lowerResponse.includes('aorta') || lowerResponse.includes('circulation')) {
+        modelSuggestion = 'heart';
+        labelSuggestion = 'Aorta & Ventricles';
+      } else {
+        // General custom dynamic body part extraction fallback
+        const systemMatches = lastMessage.text.match(/([a-zA-Z]+ system)/i);
+        const organMatches = lastMessage.text.match(/(liver|stomach|intestine|pancreas|spleen|gallbladder|thyroid|prostate|uterus|ovaries|bones|muscles|skin|skeletal)/i);
+        if (systemMatches) {
+          modelSuggestion = 'kidneys'; // Default 3D canvas container to kidneys/renal for custom ones
+          labelSuggestion = systemMatches[0].charAt(0).toUpperCase() + systemMatches[0].slice(1).toLowerCase();
+        } else if (organMatches) {
+          modelSuggestion = 'kidneys';
+          const organ = organMatches[0].charAt(0).toUpperCase() + organMatches[0].slice(1).toLowerCase();
+          labelSuggestion = `${organ} System`;
+        }
+      }
     }
 
     // ── Save AI response to SQLite (if available) ──

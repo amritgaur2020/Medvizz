@@ -54,6 +54,7 @@ export default function Page() {
   const [isGenerating3D, setIsGenerating3D] = useState(false);
   const [neural4dPrompt, setNeural4dPrompt] = useState<string | null>(null);
   const [neural4dModelUrl, setNeural4dModelUrl] = useState<string | null>(null);
+  const [customLabel, setCustomLabel] = useState<string | null>(null);
   
   // SQLite persistent session states
   const [sessions, setSessions] = useState<any[]>([]);
@@ -257,27 +258,44 @@ export default function Page() {
       let modelSuggestion: 'heart' | 'brain' | 'lungs' | 'kidneys' | undefined;
       let labelSuggestion = "";
       
-      const lowerText = (query + " " + aiResponseText).toLowerCase();
-      if (lowerText.includes('heart') || lowerText.includes('cardio') || lowerText.includes('circulation') || lowerText.includes('coronary') || lowerText.includes('myocardium')) {
-        modelSuggestion = 'heart';
-        labelSuggestion = 'Aorta & Ventricles';
-      } else if (lowerText.includes('kidney') || lowerText.includes('renal') || lowerText.includes('nephron') || lowerText.includes('urin') || lowerText.includes('glomerulus')) {
-        modelSuggestion = 'kidneys';
-        labelSuggestion = 'Renal Cortex & Medulla';
-      } else if (lowerText.includes('brain') || lowerText.includes('cerebral') || lowerText.includes('synap') || lowerText.includes('neural') || lowerText.includes('cerebellum')) {
-        modelSuggestion = 'brain';
-        labelSuggestion = 'Cerebral Cortex';
-      } else if (lowerText.includes('lung') || lowerText.includes('respir') || lowerText.includes('breath') || lowerText.includes('oxygen') || lowerText.includes('pulmonary') || lowerText.includes('alveoli')) {
+      const lowerQuery = query.toLowerCase();
+      if (lowerQuery.includes('lung') || lowerQuery.includes('respir') || lowerQuery.includes('breath') || lowerQuery.includes('oxygen') || lowerQuery.includes('pulmonary') || lowerQuery.includes('alveoli') || lowerQuery.includes('trachea')) {
         modelSuggestion = 'lungs';
         labelSuggestion = 'Trachea & Pulmonary Lobes';
+      } else if (lowerQuery.includes('urinary') || lowerQuery.includes('kidney') || lowerQuery.includes('renal') || lowerQuery.includes('nephron') || lowerQuery.includes('bladder') || lowerQuery.includes('ureter') || lowerQuery.includes('urethra')) {
+        modelSuggestion = 'kidneys';
+        labelSuggestion = 'Urinary System';
+      } else if (lowerQuery.includes('brain') || lowerQuery.includes('cerebral') || lowerQuery.includes('synap') || lowerQuery.includes('neural') || lowerQuery.includes('cerebellum') || lowerQuery.includes('neuron')) {
+        modelSuggestion = 'brain';
+        labelSuggestion = 'Cerebral Cortex';
+      } else if (lowerQuery.includes('heart') || lowerQuery.includes('cardio') || lowerQuery.includes('circulation') || lowerQuery.includes('coronary') || lowerQuery.includes('myocardium') || lowerQuery.includes('aorta') || lowerQuery.includes('ventricle') || lowerQuery.includes('atrium')) {
+        modelSuggestion = 'heart';
+        labelSuggestion = 'Aorta & Ventricles';
+      }
+
+      if (!modelSuggestion) {
+        const lowerResponse = aiResponseText.toLowerCase();
+        if (lowerResponse.includes('lung') || lowerResponse.includes('respir') || lowerResponse.includes('breath') || lowerResponse.includes('oxygen') || lowerResponse.includes('pulmonary') || lowerResponse.includes('alveoli') || lowerResponse.includes('trachea')) {
+          modelSuggestion = 'lungs';
+          labelSuggestion = 'Trachea & Pulmonary Lobes';
+        } else if (lowerResponse.includes('urinary') || lowerResponse.includes('kidney') || lowerResponse.includes('renal') || lowerResponse.includes('nephron') || lowerResponse.includes('bladder') || lowerResponse.includes('ureter') || lowerResponse.includes('urethra')) {
+          modelSuggestion = 'kidneys';
+          labelSuggestion = 'Urinary System';
+        } else if (lowerResponse.includes('brain') || lowerResponse.includes('cerebral') || lowerResponse.includes('synap') || lowerResponse.includes('neural') || lowerResponse.includes('cerebellum') || lowerResponse.includes('neuron')) {
+          modelSuggestion = 'brain';
+          labelSuggestion = 'Cerebral Cortex';
+        } else if (lowerResponse.includes('heart') || lowerResponse.includes('cardio') || lowerResponse.includes('circulation') || lowerResponse.includes('coronary') || lowerResponse.includes('myocardium') || lowerResponse.includes('aorta') || lowerResponse.includes('ventricle') || lowerResponse.includes('atrium')) {
+          modelSuggestion = 'heart';
+          labelSuggestion = 'Aorta & Ventricles';
+        }
       }
 
       setMessages(prev => [...prev, {
         id: data.aiMsgId || (Date.now() + 1).toString(),
         sender: 'ai',
         text: aiResponseText,
-        suggestModel: modelSuggestion,
-        suggestLabel: labelSuggestion,
+        suggestModel: data.suggestModel || modelSuggestion,
+        suggestLabel: data.suggestLabel || labelSuggestion,
       }]);
     } catch (error) {
       console.error('Error fetching Grok AI response:', error);
@@ -291,14 +309,13 @@ export default function Page() {
     }
   };
 
-  const handleLaunch3D = async (model: 'heart' | 'brain' | 'lungs' | 'kidneys', label: string) => {
+  const handleLaunch3D = async (rawModel: string, label: string) => {
+    const model = (['heart', 'brain', 'lungs', 'kidneys'].includes(rawModel) 
+      ? rawModel 
+      : 'kidneys') as 'heart' | 'brain' | 'lungs' | 'kidneys';
     setSelectedModel(model);
-    setActiveStructure(
-      model === 'heart' ? 'Left Ventricle' : 
-      model === 'brain' ? 'Cerebral Cortex' : 
-      model === 'lungs' ? 'Pulmonary Lobes' :
-      'Renal Cortex'
-    );
+    setCustomLabel(label);
+    setActiveStructure("External Organ Surface");
     setActiveTab('3d');
 
     // Trigger Neural4D API Generation
@@ -319,12 +336,50 @@ export default function Page() {
       
       if (data.success) {
         setNeural4dPrompt(data.promptUsed);
-        if (data.modelUrl && data.modelUrl !== 'fallback') {
-          setNeural4dModelUrl(data.modelUrl);
-        } else {
-          // If fallback is received, we keep rendering procedural mesh
-          // but we simulate completion of prompt engineering
-          await new Promise(r => setTimeout(r, 1500));
+        
+        if (data.modelUrl) {
+          // If fallback was immediately returned by server (due to missing key)
+          if (data.modelUrl !== 'fallback') {
+            setNeural4dModelUrl(data.modelUrl);
+          } else {
+            await new Promise(r => setTimeout(r, 1500));
+          }
+        } else if (data.uuid) {
+          // Asynchronously poll for compilation progress from the client
+          let complete = false;
+          let attempts = 0;
+          const maxAttempts = 20; // 20 attempts * 3s = 60s total wait
+          const delayMs = 3000;
+          
+          while (!complete && attempts < maxAttempts) {
+            attempts++;
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            
+            try {
+              const pollRes = await fetch(`/api/generate-3d?uuid=${data.uuid}`);
+              if (pollRes.ok) {
+                const pollData = await pollRes.json();
+                if (pollData.success) {
+                  if (pollData.codeStatus === 0) {
+                    complete = true;
+                    setNeural4dModelUrl(pollData.modelUrl);
+                  } else if (pollData.codeStatus === -3) {
+                    // Remote server error or failure status
+                    complete = true;
+                    console.error("[Neural4D] Remote compilation failed (codeStatus -3).");
+                  }
+                }
+              } else {
+                console.error("[Neural4D] Poll request status failed:", pollRes.status);
+              }
+            } catch (err) {
+              console.error("[Neural4D] Client poll request error:", err);
+            }
+          }
+          
+          if (!complete) {
+            console.warn("[Neural4D] Client polling timed out after 60 seconds.");
+          }
         }
       }
     } catch (e) {
@@ -336,6 +391,26 @@ export default function Page() {
 
   // Anatomical details database
   const getAnatomicalDetails = () => {
+    if (neural4dModelUrl || isGenerating3D) {
+      const displayName = customLabel || (selectedModel.charAt(0).toUpperCase() + selectedModel.slice(1) + " System");
+      return {
+        title: displayName,
+        subtitle: `Neural4D Model Generation`,
+        structures: [
+          "External Organ Surface", 
+          "Veins & Blood Streams", 
+          "Natural Organ Coloration", 
+          "Internal Cavity & Cross-section"
+        ],
+        info: {
+          "External Organ Surface": `High-fidelity outer membrane of the ${displayName} generated with medically accurate PBR textures.`,
+          "Veins & Blood Streams": `Intricate networks of arteries, veins, and capillary structures modeled precisely across the ${displayName} surface.`,
+          "Natural Organ Coloration": `Fully organic, lifelike biological shaders and natural organ pigment colors synthesized dynamically.`,
+          "Internal Cavity & Cross-section": `3D visualization showing both the interior chambers/cavities and the exterior shape of the ${displayName}.`
+        }
+      };
+    }
+
     if (selectedModel === 'heart') {
       return {
         title: "Cardiovascular System",
@@ -1125,6 +1200,9 @@ export default function Page() {
                             key={model.type}
                             onClick={() => {
                               setSelectedModel(model.type as any);
+                              setNeural4dModelUrl(null);
+                              setNeural4dPrompt(null);
+                              setCustomLabel(null);
                               setActiveStructure(
                                 model.type === 'heart' ? 'Left Ventricle' : 
                                 model.type === 'brain' ? 'Cerebral Cortex' : 
