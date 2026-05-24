@@ -9,6 +9,9 @@ interface ThreeDModelProps {
   showLabels?: boolean;
   activeStructure?: string;
   onStructureSelect?: (structure: string) => void;
+  isGenerating?: boolean;
+  neural4dPrompt?: string | null;
+  neural4dModelUrl?: string | null;
 }
 
 // 3D coordinates on each modular anatomy model
@@ -67,18 +70,21 @@ export function ThreeDModel({
   type,
   pulse = true,
   showLabels = true,
-  activeStructure,
-  onStructureSelect
+  activeStructure = "",
+  onStructureSelect,
+  isGenerating = false,
+  neural4dPrompt = null,
+  neural4dModelUrl = null
 }: ThreeDModelProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const mountRef = useRef<HTMLDivElement>(null);
   const [nodePositions, setNodePositions] = React.useState<Array<{ name: string; x: number; y: number; dx: number; dy: number }>>([]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const mount = mountRef.current;
+    if (!mount) return;
 
-    const container = containerRef.current;
-    const width = Math.max(300, container.clientWidth);
-    const height = Math.max(300, container.clientHeight);
+    const width = Math.max(300, mount.clientWidth);
+    const height = Math.max(300, mount.clientHeight);
 
     // Create Scene
     const scene = new THREE.Scene();
@@ -92,7 +98,7 @@ export function ThreeDModel({
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    container.appendChild(renderer.domElement);
+    mount.appendChild(renderer.domElement);
 
     // Add Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
@@ -140,9 +146,8 @@ export function ThreeDModel({
     if (type === "heart") {
       mainMesh = new THREE.Group();
       
-      // Heart Ventricles (Deformed wireframe sphere)
       const heartMat = new THREE.MeshPhongMaterial({
-        color: 0xef4444, // vibrant clinical red
+        color: 0xef4444,
         emissive: 0x3b0712,
         wireframe: true,
         transparent: true,
@@ -165,7 +170,6 @@ export function ThreeDModel({
       ventricles.scale.set(1, 1.25, 0.95);
       mainMesh.add(ventricles);
 
-      // Aorta vascular arch
       const aortaMat = new THREE.MeshPhongMaterial({ color: 0x06b6d4, wireframe: true });
       const aortaGeo = new THREE.TorusGeometry(0.8, 0.22, 12, 32, Math.PI);
       const aorta = new THREE.Mesh(aortaGeo, aortaMat);
@@ -174,23 +178,19 @@ export function ThreeDModel({
       mainMesh.add(aorta);
 
       group.add(mainMesh);
-
-      // Blood flow particle sparkle
       particles = createParticles(100, 2.4, 0xef4444);
       mainMesh.add(particles);
 
     } else if (type === "brain") {
       mainMesh = new THREE.Group();
-      
       const brainMat = new THREE.MeshPhongMaterial({
-        color: 0x06b6d4, // glowing brain cyan
+        color: 0x06b6d4,
         emissive: 0x083344,
         wireframe: true,
         transparent: true,
         opacity: 0.85
       });
 
-      // Left & Right Hemispheres
       const leftH = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 24), brainMat);
       leftH.scale.set(1.35, 1.05, 0.8);
       leftH.position.set(-0.55, 0.15, 0);
@@ -201,7 +201,6 @@ export function ThreeDModel({
       rightH.position.set(0.55, 0.15, 0);
       mainMesh.add(rightH);
 
-      // Cerebellum / Brainstem
       const cbMat = new THREE.MeshPhongMaterial({ color: 0xffffff, wireframe: true, opacity: 0.5, transparent: true });
       const cerebellum = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 16), cbMat);
       cerebellum.position.set(0, -0.9, 0.65);
@@ -209,71 +208,55 @@ export function ThreeDModel({
       mainMesh.add(cerebellum);
 
       group.add(mainMesh);
-
-      // Neural firing particles
       particles = createParticles(120, 2.6, 0xffffff);
       mainMesh.add(particles);
 
     } else if (type === "lungs") {
-      // Lungs
       mainMesh = new THREE.Group();
-      
       const lungMat = new THREE.MeshPhongMaterial({
-        color: 0x14b8a6, // beautiful soft teal
+        color: 0x14b8a6,
         emissive: 0x042f2e,
         wireframe: true,
         transparent: true,
         opacity: 0.8
       });
 
-      // Left Lung Lobe
       const leftLung = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 24), lungMat);
       leftLung.scale.set(0.85, 1.75, 0.8);
       leftLung.position.set(-1.05, 0, 0);
       leftLung.rotation.z = Math.PI / 16;
       mainMesh.add(leftLung);
 
-      // Right Lung Lobe
       const rightLung = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 24), lungMat);
       rightLung.scale.set(0.85, 1.75, 0.8);
       rightLung.position.set(1.05, 0, 0);
       rightLung.rotation.z = -Math.PI / 16;
       mainMesh.add(rightLung);
 
-      // Trachea Conduit
       const tracheaMat = new THREE.MeshPhongMaterial({ color: 0xffffff, wireframe: true });
       const trachea = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 2.0, 12, 4, true), tracheaMat);
       trachea.position.set(0, 1.0, 0);
       mainMesh.add(trachea);
 
       group.add(mainMesh);
-
-      // Oxygen particles
       particles = createParticles(100, 2.6, 0x06b6d4);
       mainMesh.add(particles);
 
     } else if (type === "kidneys") {
-      // Kidneys
       mainMesh = new THREE.Group();
-      
       const kidneyMat = new THREE.MeshPhongMaterial({
-        color: 0x8b5cf6, // vibrant purple/indigo color
+        color: 0x8b5cf6,
         emissive: 0x2e1065,
         wireframe: true,
         transparent: true,
         opacity: 0.85
       });
 
-      // Left Kidney
       const leftKidneyGeo = new THREE.SphereGeometry(1.0, 24, 24);
       const posAttr = leftKidneyGeo.attributes.position;
       for (let i = 0; i < posAttr.count; i++) {
         const x = posAttr.getX(i);
-        const y = posAttr.getY(i);
-        // indent the medial side to make a bean shape
-        if (x > 0) {
-          posAttr.setX(i, x * 0.3);
-        }
+        if (x > 0) posAttr.setX(i, x * 0.3);
       }
       leftKidneyGeo.computeVertexNormals();
 
@@ -283,14 +266,12 @@ export function ThreeDModel({
       leftKidney.rotation.z = Math.PI / 16;
       mainMesh.add(leftKidney);
 
-      // Right Kidney
       const rightKidney = new THREE.Mesh(leftKidneyGeo, kidneyMat);
-      rightKidney.scale.set(-0.85, 1.4, 0.7); // flip horizontally to face medial
-      rightKidney.position.set(0.65, -0.2, 0); // slightly lower
+      rightKidney.scale.set(-0.85, 1.4, 0.7);
+      rightKidney.position.set(0.65, -0.2, 0);
       rightKidney.rotation.z = -Math.PI / 16;
       mainMesh.add(rightKidney);
 
-      // Ureters
       const ureterMat = new THREE.MeshPhongMaterial({ color: 0xc4b5fd, wireframe: true, opacity: 0.5, transparent: true });
       const ureterGeo = new THREE.CylinderGeometry(0.1, 0.1, 1.8, 12, 4, true);
       
@@ -305,45 +286,24 @@ export function ThreeDModel({
       mainMesh.add(rightUreter);
 
       group.add(mainMesh);
-
-      // Filtration particles
       particles = createParticles(90, 2.4, 0x8b5cf6);
       mainMesh.add(particles);
     }
 
-    // Drag to Rotate logic
     let isDragging = false;
     let previousMousePosition = { x: 0, y: 0 };
-
-    const handleMouseDown = () => {
-      isDragging = true;
-    };
-
+    const handleMouseDown = () => { isDragging = true; };
     const handleMouseMove = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
+      const rect = mount.getBoundingClientRect();
       const currentX = e.clientX - rect.left;
       const currentY = e.clientY - rect.top;
-
-      const deltaMove = {
-        x: currentX - previousMousePosition.x,
-        y: currentY - previousMousePosition.y
-      };
-
       if (isDragging) {
-        group.rotation.y += deltaMove.x * 0.007;
-        group.rotation.x += deltaMove.y * 0.007;
+        group.rotation.y += (currentX - previousMousePosition.x) * 0.007;
+        group.rotation.x += (currentY - previousMousePosition.y) * 0.007;
       }
-
-      previousMousePosition = {
-        x: currentX,
-        y: currentY
-      };
+      previousMousePosition = { x: currentX, y: currentY };
     };
-
-    const handleMouseUp = () => {
-      isDragging = false;
-    };
-
+    const handleMouseUp = () => { isDragging = false; };
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       camera.position.z = Math.max(3.5, Math.min(15, camera.position.z + e.deltaY * 0.005));
@@ -355,117 +315,105 @@ export function ThreeDModel({
     window.addEventListener("mouseup", handleMouseUp);
     domElement.addEventListener("wheel", handleWheel);
 
-    // Animation Loop
     let clock = new THREE.Clock();
     let animationFrameId: number;
-
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
       const elapsedTime = clock.getElapsedTime();
-
-      // Idle Rotation
-      if (!isDragging) {
-        group.rotation.y += 0.0065;
-      }
-
-      // Breathing / Pulsing Effect
-      if (pulse) {
+      if (!isDragging) group.rotation.y += 0.0065;
+      if (pulse && mainMesh) {
         let pulseScale = 1.0;
-        if (type === "heart") {
-          // heartbeat double-beat pulse
-          const pulseCycle = (elapsedTime * 1.5) % Math.PI;
-          pulseScale = 1.0 + Math.sin(pulseCycle * 2) * 0.08 * Math.pow(Math.sin(pulseCycle), 2);
-        } else if (type === "lungs") {
-          // lung deep inhalation cycle
-          pulseScale = 1.0 + Math.sin(elapsedTime * 1.25) * 0.06;
-        } else if (type === "kidneys") {
-          // steady slow pulsing for filtration
-          pulseScale = 1.0 + Math.sin(elapsedTime * 0.8) * 0.04;
-        } else {
-          // brain slow pulsing
-          pulseScale = 1.0 + Math.sin(elapsedTime * 1.0) * 0.03;
-        }
+        if (type === "heart") pulseScale = 1.0 + Math.sin((elapsedTime * 1.5) % Math.PI * 2) * 0.08 * Math.pow(Math.sin((elapsedTime * 1.5) % Math.PI), 2);
+        else if (type === "lungs") pulseScale = 1.0 + Math.sin(elapsedTime * 1.25) * 0.06;
+        else if (type === "kidneys") pulseScale = 1.0 + Math.sin(elapsedTime * 0.8) * 0.04;
+        else pulseScale = 1.0 + Math.sin(elapsedTime * 1.0) * 0.03;
         mainMesh.scale.set(pulseScale, pulseScale, pulseScale);
       }
-
-      // Rotate particle systems
-      if (particles) {
-        particles.rotation.y -= 0.004;
-      }
-
+      if (particles) particles.rotation.y -= 0.004;
       renderer.render(scene, camera);
 
-      // Project and calculate 2D screen positions of active labels
       const activePositions = nodePositionsMap[type];
       const positionsArray: Array<{ name: string; x: number; y: number; dx: number; dy: number }> = [];
-
       Object.entries(activePositions).forEach(([name, localPos]) => {
-        const tempV = new THREE.Vector3();
-        tempV.copy(localPos);
-        tempV.applyMatrix4(group.matrixWorld);
-        tempV.project(camera);
-        
-        // Convert normalized coordinates to pixel spaces relative to the container
-        const currentWidth = container.clientWidth || 400;
-        const currentHeight = container.clientHeight || 400;
-        const x = (tempV.x * 0.5 + 0.5) * currentWidth;
-        const y = (-(tempV.y * 0.5) + 0.5) * currentHeight;
-        
+        const tempV = new THREE.Vector3().copy(localPos).applyMatrix4(group.matrixWorld).project(camera);
+        const x = (tempV.x * 0.5 + 0.5) * mount.clientWidth;
+        const y = (-(tempV.y * 0.5) + 0.5) * mount.clientHeight;
         const offset = labelOffsets[name] || { dx: 15, dy: 10 };
-        const dxPx = (offset.dx / 100) * currentWidth;
-        const dyPx = (offset.dy / 100) * currentHeight;
-
-        positionsArray.push({
-          name,
-          x,
-          y,
-          dx: dxPx,
-          dy: dyPx
-        });
+        positionsArray.push({ name, x, y, dx: (offset.dx / 100) * mount.clientWidth, dy: (offset.dy / 100) * mount.clientHeight });
       });
-
       setNodePositions(positionsArray);
     };
-
     animate();
 
     const handleResize = () => {
-      if (!container) return;
-      const newWidth = Math.max(300, container.clientWidth);
-      const newHeight = Math.max(300, container.clientHeight);
+      const newWidth = Math.max(300, mount.clientWidth);
+      const newHeight = Math.max(300, mount.clientHeight);
       camera.aspect = newWidth / newHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(newWidth, newHeight);
     };
-
-    const resizeObserver = new ResizeObserver(() => handleResize());
-    resizeObserver.observe(container);
+    window.addEventListener("resize", handleResize);
 
     return () => {
-      resizeObserver.disconnect();
+      window.removeEventListener("resize", handleResize);
       cancelAnimationFrame(animationFrameId);
-      
       domElement.removeEventListener("mousedown", handleMouseDown);
       domElement.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
       domElement.removeEventListener("wheel", handleWheel);
-
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
-      }
-
+      mount.removeChild(renderer.domElement);
+      scene.clear();
       renderer.dispose();
     };
-  }, [type, pulse]);
+  }, [type, pulse, showLabels, activeStructure, isGenerating, neural4dModelUrl]);
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-full min-h-[300px] flex items-center justify-center cursor-grab active:cursor-grabbing select-none relative"
-    >
-      {/* Three.js canvas renders inside this div */}
+    <div className="relative w-full h-full flex items-center justify-center bg-transparent">
+      {isGenerating && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#171717]/80 backdrop-blur-md rounded-xl overflow-hidden border border-cyan-900/50">
+          <div className="relative w-48 h-48 mb-6">
+            <div className="absolute inset-0 border-4 border-cyan-500/20 rounded-full animate-spin-slow"></div>
+            <div className="absolute inset-0 border-t-4 border-cyan-400 rounded-full animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-cyan-400 font-bold tracking-widest text-sm animate-pulse">Neural4D</span>
+            </div>
+          </div>
+          <h3 className="text-white font-semibold text-lg mb-2">Generating 3D Anatomy...</h3>
+          <div className="max-w-md w-full px-6 text-center">
+            <p className="text-xs text-[#8e8e8e] mb-3 uppercase tracking-widest font-mono">Real-Time Text-to-3D Synthesis</p>
+            {neural4dPrompt ? (
+              <div className="bg-[#111] border border-[#2f2f2f] rounded p-3 text-left">
+                <span className="text-cyan-500 text-[10px] font-bold block mb-1">AI PROMPT ENGINERING:</span>
+                <p className="text-[11px] text-[#b4b4b4] italic leading-relaxed">"{neural4dPrompt}"</p>
+              </div>
+            ) : (
+              <div className="h-12 flex items-center justify-center">
+                <div className="flex gap-1">
+                  <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce"></div>
+                  <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce delay-75"></div>
+                  <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce delay-150"></div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
+      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing outline-none" tabIndex={0} />
+      
+      {!isGenerating && !neural4dModelUrl && (
+        <div className="absolute bottom-4 right-4 pointer-events-none opacity-50 flex items-center gap-1.5 border border-[#3f3f3f] px-2 py-1 rounded bg-[#111]">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          <span className="text-[10px] text-white font-mono tracking-wider">PROCEDURAL MESH ACTIVE</span>
+        </div>
+      )}
+      {!isGenerating && neural4dModelUrl && (
+        <div className="absolute bottom-4 right-4 pointer-events-none flex items-center gap-1.5 border border-cyan-800 px-2 py-1 rounded bg-cyan-950">
+          <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
+          <span className="text-[10px] text-cyan-400 font-bold tracking-wider">NEURAL4D ASSET LOADED</span>
+        </div>
+      )}
 
-      {/* SVG overlay containing the callout lines and label nodes */}
       {showLabels && nodePositions.length > 0 && (
         <div className="absolute inset-0 pointer-events-none w-full h-full overflow-hidden z-20">
           <svg className="w-full h-full absolute inset-0 pointer-events-none">
@@ -473,8 +421,7 @@ export function ThreeDModel({
               const active = pos.name === activeStructure;
               const x2 = pos.x + pos.dx;
               const y2 = pos.y + pos.dy;
-              const xMid = pos.x + pos.dx * 0.45; // elbow break position
-              
+              const xMid = pos.x + pos.dx * 0.45;
               return (
                 <g key={pos.name} className="transition-all duration-300">
                   {/* Dotted HUD pointer line with Sci-Fi elbow */}

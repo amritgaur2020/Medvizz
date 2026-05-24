@@ -50,6 +50,11 @@ export default function Page() {
   const [showLabels, setShowLabels] = useState(true);
   const [showHUD, setShowHUD] = useState(true);
   
+  // Neural4D Integration State
+  const [isGenerating3D, setIsGenerating3D] = useState(false);
+  const [neural4dPrompt, setNeural4dPrompt] = useState<string | null>(null);
+  const [neural4dModelUrl, setNeural4dModelUrl] = useState<string | null>(null);
+  
   // SQLite persistent session states
   const [sessions, setSessions] = useState<any[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
@@ -286,7 +291,7 @@ export default function Page() {
     }
   };
 
-  const handleLaunch3D = (model: 'heart' | 'brain' | 'lungs' | 'kidneys', label: string) => {
+  const handleLaunch3D = async (model: 'heart' | 'brain' | 'lungs' | 'kidneys', label: string) => {
     setSelectedModel(model);
     setActiveStructure(
       model === 'heart' ? 'Left Ventricle' : 
@@ -295,6 +300,38 @@ export default function Page() {
       'Renal Cortex'
     );
     setActiveTab('3d');
+
+    // Trigger Neural4D API Generation
+    setIsGenerating3D(true);
+    setNeural4dPrompt(null);
+    setNeural4dModelUrl(null);
+    
+    try {
+      // Small artificial delay to show scanning UI before fetch
+      await new Promise(r => setTimeout(r, 600));
+
+      const res = await fetch('/api/generate-3d', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: label })
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        setNeural4dPrompt(data.promptUsed);
+        if (data.modelUrl && data.modelUrl !== 'fallback') {
+          setNeural4dModelUrl(data.modelUrl);
+        } else {
+          // If fallback is received, we keep rendering procedural mesh
+          // but we simulate completion of prompt engineering
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to generate 3D:", e);
+    } finally {
+      setIsGenerating3D(false);
+    }
   };
 
   // Anatomical details database
@@ -1126,12 +1163,15 @@ export default function Page() {
                   </div>
 
                   {/* 3D Render Output */}
-                  <div className="flex-1 w-full h-full flex items-center justify-center">
+                  <div className="flex-1 w-full h-full flex items-center justify-center relative">
                     <ThreeDModel 
                       type={selectedModel} 
                       showLabels={showLabels} 
                       activeStructure={activeStructure}
                       onStructureSelect={setActiveStructure}
+                      isGenerating={isGenerating3D}
+                      neural4dPrompt={neural4dPrompt}
+                      neural4dModelUrl={neural4dModelUrl}
                     />
                   </div>
 
