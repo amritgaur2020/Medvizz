@@ -213,6 +213,22 @@ export default function Page() {
     setInputText('');
     setIsThinking(true);
 
+    // Dynamically rename the session based on the first user message
+    const currentSession = sessions.find(s => s.id === currentSessionId);
+    if (currentSession && (currentSession.title === 'New Medical Chat Session' || currentSession.title === 'MedVis AI Clinical Sandbox')) {
+      const newTitle = query.length > 30 ? query.substring(0, 30) + '...' : query;
+      
+      // Update locally immediately
+      setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, title: newTitle } : s));
+      
+      // Update in DB asynchronously
+      fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: currentSessionId, title: newTitle })
+      }).catch(console.error);
+    }
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',

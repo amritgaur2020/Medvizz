@@ -4,11 +4,13 @@ import { NextResponse } from 'next/server';
 let getSessions: any = null;
 let createSession: any = null;
 let deleteSession: any = null;
+let updateSessionTitle: any = null;
 try {
   const db = require('@/lib/db');
   getSessions = db.getSessions;
   createSession = db.createSession;
   deleteSession = db.deleteSession;
+  updateSessionTitle = db.updateSessionTitle;
 } catch (_) {}
 
 export async function GET() {
@@ -64,6 +66,18 @@ export async function DELETE(req: Request) {
     const id = searchParams.get('id');
     if (deleteSession && id) deleteSession(id);
     return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const { id, title } = await req.json();
+    if (updateSessionTitle && id && title) {
+      updateSessionTitle(id, title);
+    }
+    return NextResponse.json({ success: true, id, title });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
