@@ -27,7 +27,22 @@ import {
   Trash2
 } from 'lucide-react';
 import { BackgroundPaths } from '@/components/background-paths';
-import { ThreeDModel } from '@/components/three-d-model';
+import dynamic from 'next/dynamic';
+
+const ThreeDModel = dynamic(
+  () => import('@/components/three-d-model').then((mod) => mod.ThreeDModel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex-1 w-full h-full flex items-center justify-center bg-[#1b1b1b] min-h-[350px]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-[#b4b4b4] font-semibold tracking-wider uppercase animate-pulse">Initializing WebGL Engine...</p>
+        </div>
+      </div>
+    )
+  }
+);
 import { SparklesCore } from '@/components/ui/sparkles';
 import FlowArt, { FlowSection } from '@/components/ui/story-scroll';
 import ReactMarkdown from 'react-markdown';
