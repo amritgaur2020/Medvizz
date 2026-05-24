@@ -54,7 +54,9 @@ export default function Page() {
   const [isGenerating3D, setIsGenerating3D] = useState(false);
   const [neural4dPrompt, setNeural4dPrompt] = useState<string | null>(null);
   const [neural4dModelUrl, setNeural4dModelUrl] = useState<string | null>(null);
+  const [neural4dImageUrl, setNeural4dImageUrl] = useState<string | null>(null);
   const [customLabel, setCustomLabel] = useState<string | null>(null);
+  const [pollProgress, setPollProgress] = useState(0); // 0-100 for progress bar
   
   // SQLite persistent session states
   const [sessions, setSessions] = useState<any[]>([]);
@@ -72,21 +74,62 @@ export default function Page() {
   const [isThinking, setIsThinking] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load sessions from SQLite on mount
+  // Load sessions and generated models from SQLite/localStorage on mount
+  const [generatedModels, setGeneratedModels] = useState<any[]>([]);
+
   useEffect(() => {
-    const loadSessions = async () => {
+    const initData = async () => {
+      // ── 1. Load Sessions ──
       try {
         const res = await fetch('/api/sessions');
         const data = await res.json();
+        
+        let localSessions: any[] = [];
+        try {
+          const s = localStorage.getItem('medvis_sessions');
+          localSessions = s ? JSON.parse(s) : [];
+        } catch (_) {}
+
+        let finalSessions = [];
         if (data.sessions && data.sessions.length > 0) {
-          setSessions(data.sessions);
-          // Set active session to the most recent one
-          setCurrentSessionId(data.sessions[0].id);
-          
-          // Load its messages
-          const msgRes = await fetch(`/api/sessions/messages?sessionId=${data.sessions[0].id}`);
-          const msgData = await msgRes.json();
-          if (msgData.messages) {
+          finalSessions = [...data.sessions];
+          // If the only session returned is the default serverless mock, and we have custom local sessions, use local sessions!
+          if (data.sessions.length === 1 && data.sessions[0].id.startsWith('session_default') && localSessions.length > 0) {
+            finalSessions = localSessions;
+          }
+        } else {
+          finalSessions = localSessions.length > 0 ? localSessions : [{
+            id: 'session_default_' + Date.now(),
+            title: 'MedVis AI Clinical Sandbox',
+            model_type: 'general',
+            created_at: new Date().toISOString()
+          }];
+        }
+
+        setSessions(finalSessions);
+        try {
+          localStorage.setItem('medvis_sessions', JSON.stringify(finalSessions));
+        } catch (_) {}
+
+        // Determine active session
+        const activeId = finalSessions[0]?.id || 'session_default';
+        setCurrentSessionId(activeId);
+
+        // ── 2. Load Messages for Active Session ──
+        const msgRes = await fetch(`/api/sessions/messages?sessionId=${activeId}`);
+        const msgData = await msgRes.json();
+        
+        let localMsgs: any[] = [];
+        try {
+          const m = localStorage.getItem(`medvis_messages_${activeId}`);
+          localMsgs = m ? JSON.parse(m) : [];
+        } catch (_) {}
+
+        if (msgData.messages && msgData.messages.length > 0) {
+          // If the message is the welcome fallback mock, and we have local messages, load them
+          if (msgData.messages.length === 1 && msgData.messages[0].id.startsWith('msg_welcome') && localMsgs.length > 0) {
+            setMessages(localMsgs);
+          } else {
             setMessages(msgData.messages.map((m: any) => ({
               id: m.id,
               sender: m.sender,
@@ -95,13 +138,56 @@ export default function Page() {
               suggestLabel: m.suggest_label || undefined
             })));
           }
+        } else if (localMsgs.length > 0) {
+          setMessages(localMsgs);
+        } else {
+          const welcomeMsg = {
+            id: 'msg_welcome_' + Date.now(),
+            sender: 'ai' as const,
+            text: "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.",
+          };
+          setMessages([welcomeMsg]);
+          try {
+            localStorage.setItem(`medvis_messages_${activeId}`, JSON.stringify([welcomeMsg]));
+          } catch (_) {}
         }
       } catch (err) {
-        console.error('Failed to initialize SQLite session data:', err);
+        console.error('Failed to initialize session data:', err);
+      }
+
+      // ── 3. Load Generated Models ──
+      try {
+        const res = await fetch('/api/models');
+        const data = await res.json();
+        
+        let localModels: any[] = [];
+        try {
+          const m = localStorage.getItem('medvis_generated_models');
+          localModels = m ? JSON.parse(m) : [];
+        } catch (_) {}
+
+        if (data.models && data.models.length > 0) {
+          // Merge local and DB models
+          const merged = [...data.models];
+          localModels.forEach((lm: any) => {
+            if (!merged.some(m => m.id === lm.id)) {
+              merged.push(lm);
+            }
+          });
+          setGeneratedModels(merged);
+        } else {
+          setGeneratedModels(localModels);
+        }
+      } catch (err) {
+        console.error('Failed to load generated models:', err);
+        try {
+          const m = localStorage.getItem('medvis_generated_models');
+          if (m) setGeneratedModels(JSON.parse(m));
+        } catch (_) {}
       }
     };
-    
-    loadSessions();
+
+    initData();
   }, []);
 
   // Auto-scroll messages
@@ -109,22 +195,39 @@ export default function Page() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
 
-  // Persistent SQLite Session Handlers
+  // Persistent SQLite & LocalStorage Session Handlers
   const handleSelectSession = async (sessionId: string) => {
     setCurrentSessionId(sessionId);
     setActiveTab('chat');
     setIsThinking(false);
+
+    // Check if we have local messages first for instant response
+    let localMsgs: any[] = [];
+    try {
+      const m = localStorage.getItem(`medvis_messages_${sessionId}`);
+      localMsgs = m ? JSON.parse(m) : [];
+    } catch (_) {}
+    if (localMsgs.length > 0) {
+      setMessages(localMsgs);
+    }
+
     try {
       const msgRes = await fetch(`/api/sessions/messages?sessionId=${sessionId}`);
       const msgData = await msgRes.json();
-      if (msgData.messages) {
-        setMessages(msgData.messages.map((m: any) => ({
-          id: m.id,
-          sender: m.sender,
-          text: m.text,
-          suggestModel: m.suggest_model || undefined,
-          suggestLabel: m.suggest_label || undefined
-        })));
+      if (msgData.messages && msgData.messages.length > 0) {
+        if (!(msgData.messages.length === 1 && msgData.messages[0].id.startsWith('msg_welcome') && localMsgs.length > 0)) {
+          const parsed = msgData.messages.map((m: any) => ({
+            id: m.id,
+            sender: m.sender,
+            text: m.text,
+            suggestModel: m.suggest_model || undefined,
+            suggestLabel: m.suggest_label || undefined
+          }));
+          setMessages(parsed);
+          try {
+            localStorage.setItem(`medvis_messages_${sessionId}`, JSON.stringify(parsed));
+          } catch (_) {}
+        }
       }
     } catch (err) {
       console.error('Failed to load messages for session:', err);
@@ -133,75 +236,89 @@ export default function Page() {
 
   const handleNewSession = async (title: string = 'New Medical Chat Session', modelType: string = 'general') => {
     const newSessionId = 'session_' + Date.now();
+    const newSession = {
+      id: newSessionId,
+      title,
+      model_type: modelType,
+      created_at: new Date().toISOString()
+    };
+
+    // Update session list state immediately
+    const updatedSessions = [newSession, ...sessions];
+    setSessions(updatedSessions);
+    setCurrentSessionId(newSessionId);
     try {
-      const res = await fetch('/api/sessions', {
+      localStorage.setItem('medvis_sessions', JSON.stringify(updatedSessions));
+    } catch (_) {}
+
+    // Add initial welcome message
+    const initialText = "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.";
+    const initialMsgId = 'msg_welcome_' + Date.now();
+    const welcomeMsg = {
+      id: initialMsgId,
+      sender: 'ai' as const,
+      text: initialText
+    };
+
+    setMessages([welcomeMsg]);
+    try {
+      localStorage.setItem(`medvis_messages_${newSessionId}`, JSON.stringify([welcomeMsg]));
+    } catch (_) {}
+    setActiveTab('chat');
+
+    // Post to API asynchronously
+    try {
+      await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: newSessionId, title, modelType }),
       });
-      const data = await res.json();
-      if (data.session) {
-        // Add to active sessions list
-        setSessions(prev => [data.session, ...prev]);
-        setCurrentSessionId(newSessionId);
-        
-        // Add initial message locally and save in SQLite
-        const initialText = "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.";
-        const initialMsgId = 'msg_welcome_' + Date.now();
-        
-        await fetch('/api/sessions/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: initialMsgId,
-            sessionId: newSessionId,
-            sender: 'ai',
-            text: initialText,
-            suggestModel: null,
-            suggestLabel: null
-          })
-        });
-
-        setMessages([
-          {
-            id: initialMsgId,
-            sender: 'ai',
-            text: initialText
-          }
-        ]);
-        setActiveTab('chat');
-      }
+      
+      await fetch('/api/sessions/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: initialMsgId,
+          sessionId: newSessionId,
+          sender: 'ai',
+          text: initialText,
+          suggestModel: null,
+          suggestLabel: null
+        })
+      });
     } catch (err) {
-      console.error('Failed to create new persistent session:', err);
+      console.error('Failed to save session to API:', err);
     }
   };
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Avoid selecting the deleted session
+    
+    const updatedSessions = sessions.filter(s => s.id !== sessionId);
+    setSessions(updatedSessions);
     try {
-      const res = await fetch(`/api/sessions?id=${sessionId}`, {
+      localStorage.setItem('medvis_sessions', JSON.stringify(updatedSessions));
+      localStorage.removeItem(`medvis_messages_${sessionId}`);
+    } catch (_) {}
+
+    // If we deleted the currently active session, switch to another one
+    if (currentSessionId === sessionId) {
+      if (updatedSessions.length > 0) {
+        handleSelectSession(updatedSessions[0].id);
+      } else {
+        // If zero sessions left, create a fresh one!
+        handleNewSession('MedVis AI Clinical Sandbox', 'general');
+      }
+    }
+
+    try {
+      await fetch(`/api/sessions?id=${sessionId}`, {
         method: 'DELETE'
       });
-      if (res.ok) {
-        const updatedSessions = sessions.filter(s => s.id !== sessionId);
-        setSessions(updatedSessions);
-        
-        // If we deleted the currently active session, switch to another one
-        if (currentSessionId === sessionId) {
-          if (updatedSessions.length > 0) {
-            handleSelectSession(updatedSessions[0].id);
-          } else {
-            // If zero sessions left, create a fresh one!
-            handleNewSession('MedVis AI Clinical Sandbox', 'general');
-          }
-        }
-      }
     } catch (err) {
-      console.error('Failed to delete persistent session:', err);
+      console.error('Failed to delete persistent session from API:', err);
     }
   };
-
-
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputText;
@@ -219,15 +336,35 @@ export default function Page() {
     setInputText('');
     setIsThinking(true);
 
+    // Save to local storage
+    try {
+      localStorage.setItem(`medvis_messages_${currentSessionId}`, JSON.stringify(updatedMessages));
+    } catch (_) {}
+
+    // Post user message to API asynchronously
+    fetch('/api/sessions/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: userMsg.id,
+        sessionId: currentSessionId,
+        sender: 'user',
+        text: query,
+        suggestModel: null,
+        suggestLabel: null
+      })
+    }).catch(console.error);
+
     // Dynamically rename the session based on the first user message
     const currentSession = sessions.find(s => s.id === currentSessionId);
-    if (currentSession && (currentSession.title === 'New Medical Chat Session' || currentSession.title === 'MedVis AI Clinical Sandbox')) {
+    if (currentSession && (currentSession.title.startsWith('New Medical Chat Session') || currentSession.title.startsWith('MedVis AI Clinical Sandbox'))) {
       const newTitle = query.length > 30 ? query.substring(0, 30) + '...' : query;
-      
-      // Update locally immediately
-      setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, title: newTitle } : s));
-      
-      // Update in DB asynchronously
+      const updatedSess = sessions.map(s => s.id === currentSessionId ? { ...s, title: newTitle } : s);
+      setSessions(updatedSess);
+      try {
+        localStorage.setItem('medvis_sessions', JSON.stringify(updatedSess));
+      } catch (_) {}
+
       fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -254,49 +391,85 @@ export default function Page() {
       const data = await response.json();
       const aiResponseText = data.choices?.[0]?.message?.content || 'Sorry, I was unable to process that response. Please try again.';
 
-      // Determine model suggestion dynamically based on query or response keywords
+      // Determine model suggestion — user query has absolute priority over AI response
       let modelSuggestion: 'heart' | 'brain' | 'lungs' | 'kidneys' | undefined;
       let labelSuggestion = "";
-      
-      const lowerQuery = query.toLowerCase();
-      if (lowerQuery.includes('lung') || lowerQuery.includes('respir') || lowerQuery.includes('breath') || lowerQuery.includes('oxygen') || lowerQuery.includes('pulmonary') || lowerQuery.includes('alveoli') || lowerQuery.includes('trachea')) {
-        modelSuggestion = 'lungs';
-        labelSuggestion = 'Trachea & Pulmonary Lobes';
-      } else if (lowerQuery.includes('urinary') || lowerQuery.includes('kidney') || lowerQuery.includes('renal') || lowerQuery.includes('nephron') || lowerQuery.includes('bladder') || lowerQuery.includes('ureter') || lowerQuery.includes('urethra')) {
-        modelSuggestion = 'kidneys';
-        labelSuggestion = 'Urinary System';
-      } else if (lowerQuery.includes('brain') || lowerQuery.includes('cerebral') || lowerQuery.includes('synap') || lowerQuery.includes('neural') || lowerQuery.includes('cerebellum') || lowerQuery.includes('neuron')) {
-        modelSuggestion = 'brain';
-        labelSuggestion = 'Cerebral Cortex';
-      } else if (lowerQuery.includes('heart') || lowerQuery.includes('cardio') || lowerQuery.includes('circulation') || lowerQuery.includes('coronary') || lowerQuery.includes('myocardium') || lowerQuery.includes('aorta') || lowerQuery.includes('ventricle') || lowerQuery.includes('atrium')) {
-        modelSuggestion = 'heart';
-        labelSuggestion = 'Aorta & Ventricles';
+
+      function detectModelClient(text: string): { model: 'heart' | 'brain' | 'lungs' | 'kidneys'; label: string } | null {
+        const t = text.toLowerCase();
+        if (t.includes('urinary') || t.includes('kidney') || t.includes('renal') || t.includes('nephron') || t.includes('bladder') || t.includes('urethra') || t.includes('ureter') || t.includes('glomerulus') || t.includes('glomeruli')) {
+          return { model: 'kidneys', label: 'Urinary System' };
+        }
+        if (t.includes('lung') || t.includes('respir') || t.includes('breath') || t.includes('oxygen') || t.includes('pulmonary') || t.includes('alveoli') || t.includes('trachea') || t.includes('bronch')) {
+          return { model: 'lungs', label: 'Pulmonary System' };
+        }
+        if (t.includes('brain') || t.includes('cerebral') || t.includes('synap') || t.includes('neural') || t.includes('cerebellum') || t.includes('neuron') || t.includes('nervous system') || t.includes('cortex')) {
+          return { model: 'brain', label: 'Nervous System' };
+        }
+        if (t.includes('heart') || t.includes('cardio') || t.includes('circulation') || t.includes('coronary') || t.includes('myocardium') || t.includes('aorta') || t.includes('ventricle') || t.includes('atrium')) {
+          return { model: 'heart', label: 'Cardiovascular System' };
+        }
+        // General system/organ extraction
+        const systemMatch = text.match(/\b([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+system\b/i);
+        if (systemMatch) {
+          const sysName = systemMatch[1].trim();
+          const label = sysName.charAt(0).toUpperCase() + sysName.slice(1).toLowerCase() + ' System';
+          return { model: 'kidneys', label };
+        }
+        const organMatch = text.match(/\b(liver|stomach|intestine|pancreas|spleen|gallbladder|thyroid|prostate|uterus|ovaries|bone|muscle|skin|skeletal|lymph|immune|digestive|endocrine|reproductive|musculoskeletal)\b/i);
+        if (organMatch) {
+          const organ = organMatch[1].charAt(0).toUpperCase() + organMatch[1].slice(1).toLowerCase();
+          return { model: 'kidneys', label: `${organ} System` };
+        }
+        return null;
       }
 
-      if (!modelSuggestion) {
-        const lowerResponse = aiResponseText.toLowerCase();
-        if (lowerResponse.includes('lung') || lowerResponse.includes('respir') || lowerResponse.includes('breath') || lowerResponse.includes('oxygen') || lowerResponse.includes('pulmonary') || lowerResponse.includes('alveoli') || lowerResponse.includes('trachea')) {
-          modelSuggestion = 'lungs';
-          labelSuggestion = 'Trachea & Pulmonary Lobes';
-        } else if (lowerResponse.includes('urinary') || lowerResponse.includes('kidney') || lowerResponse.includes('renal') || lowerResponse.includes('nephron') || lowerResponse.includes('bladder') || lowerResponse.includes('ureter') || lowerResponse.includes('urethra')) {
-          modelSuggestion = 'kidneys';
-          labelSuggestion = 'Urinary System';
-        } else if (lowerResponse.includes('brain') || lowerResponse.includes('cerebral') || lowerResponse.includes('synap') || lowerResponse.includes('neural') || lowerResponse.includes('cerebellum') || lowerResponse.includes('neuron')) {
-          modelSuggestion = 'brain';
-          labelSuggestion = 'Cerebral Cortex';
-        } else if (lowerResponse.includes('heart') || lowerResponse.includes('cardio') || lowerResponse.includes('circulation') || lowerResponse.includes('coronary') || lowerResponse.includes('myocardium') || lowerResponse.includes('aorta') || lowerResponse.includes('ventricle') || lowerResponse.includes('atrium')) {
-          modelSuggestion = 'heart';
-          labelSuggestion = 'Aorta & Ventricles';
+      // 1. User query is the source of truth
+      const queryDetect = detectModelClient(query);
+      if (queryDetect) {
+        modelSuggestion = queryDetect.model;
+        labelSuggestion = queryDetect.label;
+      }
+
+      // 2. Only use AI response as fallback if query gave nothing
+      if (!modelSuggestion && aiResponseText && !aiResponseText.includes('⚠️')) {
+        const responseDetect = detectModelClient(aiResponseText);
+        if (responseDetect) {
+          modelSuggestion = responseDetect.model;
+          labelSuggestion = responseDetect.label;
         }
       }
 
-      setMessages(prev => [...prev, {
+      const newAiMsg = {
         id: data.aiMsgId || (Date.now() + 1).toString(),
-        sender: 'ai',
+        sender: 'ai' as const,
         text: aiResponseText,
-        suggestModel: data.suggestModel || modelSuggestion,
-        suggestLabel: data.suggestLabel || labelSuggestion,
-      }]);
+        suggestModel: modelSuggestion || data.suggestModel,
+        suggestLabel: labelSuggestion || data.suggestLabel,
+      };
+
+      setMessages(prev => {
+        const nextMsgs = [...prev, newAiMsg];
+        try {
+          localStorage.setItem(`medvis_messages_${currentSessionId}`, JSON.stringify(nextMsgs));
+        } catch (_) {}
+        return nextMsgs;
+      });
+
+      // Post AI message to API asynchronously
+      fetch('/api/sessions/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newAiMsg.id,
+          sessionId: currentSessionId,
+          sender: 'ai',
+          text: newAiMsg.text,
+          suggestModel: newAiMsg.suggestModel || null,
+          suggestLabel: newAiMsg.suggestLabel || null
+        })
+      }).catch(console.error);
+
     } catch (error) {
       console.error('Error fetching Grok AI response:', error);
       setMessages(prev => [...prev, {
@@ -318,76 +491,189 @@ export default function Page() {
     setActiveStructure("External Organ Surface");
     setActiveTab('3d');
 
-    // Trigger Neural4D API Generation
+    // Reset Neural4D state and show generating UI
     setIsGenerating3D(true);
     setNeural4dPrompt(null);
     setNeural4dModelUrl(null);
+    setNeural4dImageUrl(null);
+    setPollProgress(0);
     
     try {
-      // Small artificial delay to show scanning UI before fetch
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 400));
 
       const res = await fetch('/api/generate-3d', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: label })
+        body: JSON.stringify({ topic: label, messages: messages })
       });
       const data = await res.json();
       
-      if (data.success) {
-        setNeural4dPrompt(data.promptUsed);
-        
-        if (data.modelUrl) {
-          // If fallback was immediately returned by server (due to missing key)
-          if (data.modelUrl !== 'fallback') {
-            setNeural4dModelUrl(data.modelUrl);
-          } else {
-            await new Promise(r => setTimeout(r, 1500));
-          }
-        } else if (data.uuid) {
-          // Asynchronously poll for compilation progress from the client
-          let complete = false;
-          let attempts = 0;
-          const maxAttempts = 20; // 20 attempts * 3s = 60s total wait
-          const delayMs = 3000;
-          
-          while (!complete && attempts < maxAttempts) {
-            attempts++;
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-            
-            try {
-              const pollRes = await fetch(`/api/generate-3d?uuid=${data.uuid}`);
-              if (pollRes.ok) {
-                const pollData = await pollRes.json();
-                if (pollData.success) {
-                  if (pollData.codeStatus === 0) {
-                    complete = true;
-                    setNeural4dModelUrl(pollData.modelUrl);
-                  } else if (pollData.codeStatus === -3) {
-                    // Remote server error or failure status
-                    complete = true;
-                    console.error("[Neural4D] Remote compilation failed (codeStatus -3).");
-                  }
-                }
-              } else {
-                console.error("[Neural4D] Poll request status failed:", pollRes.status);
-              }
-            } catch (err) {
-              console.error("[Neural4D] Client poll request error:", err);
+      if (!data.success) {
+        console.error('[3D] generate-3d POST failed:', data.error);
+        return;
+      }
+
+      // Show the Grok-engineered prompt in the UI immediately
+      if (data.promptUsed) setNeural4dPrompt(data.promptUsed);
+
+      if (data.source === 'procedural' && !data.uuid) {
+        // Neural4D key missing/invalid — no UUID returned, show procedural fallback
+        console.log('[3D] Using procedural fallback (Neural4D unavailable)');
+        return;
+      }
+
+      if (data.uuid) {
+        // ── Poll Neural4D retrieveModel until codeStatus === 0 ──
+        // Neural4D takes ~90s. Poll every 5s for up to 10 minutes (120 attempts).
+        let complete = false;
+        let attempts = 0;
+        const maxAttempts = 120;
+        const delayMs = 5000;
+
+        console.log(`[Neural4D] Polling UUID: ${data.uuid}`);
+
+        while (!complete && attempts < maxAttempts) {
+          attempts++;
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+
+          try {
+            const pollRes = await fetch(`/api/generate-3d?uuid=${data.uuid}`);
+            if (!pollRes.ok) {
+              console.error('[Neural4D] Poll HTTP error:', pollRes.status);
+              continue;
             }
+
+            const pollData = await pollRes.json();
+            console.log(`[Neural4D] Poll ${attempts}/${maxAttempts}: codeStatus=${pollData.codeStatus}`);
+            // Update progress bar (0→95% during generation, 100% on complete)
+            setPollProgress(Math.min(95, Math.round((attempts / maxAttempts) * 100)));
+
+            if (pollData.codeStatus === 0) {
+              // ✅ Complete — load the model directly from Neural4D S3 (has CORS: *)
+              complete = true;
+              const loadUrl = pollData.modelUrl || pollData.proxyUrl;
+              const generatedImgUrl = pollData.imageUrl || null;
+              if (loadUrl) {
+                console.log('[Neural4D] ✅ Model ready! Loading:', loadUrl, 'Image:', generatedImgUrl);
+                setPollProgress(100);
+                setNeural4dModelUrl(loadUrl);
+                setNeural4dImageUrl(generatedImgUrl);
+
+                // ── Save to Database & LocalStorage ──
+                const newModelId = 'model_' + Date.now();
+                const promptUsed = pollData.prompts || data.promptUsed || `3D model of ${label}`;
+                
+                const savedModelItem = {
+                  id: newModelId,
+                  topic: label,
+                  prompt: promptUsed,
+                  model_url: loadUrl,
+                  image_url: generatedImgUrl,
+                  created_at: new Date().toISOString()
+                };
+                
+                setGeneratedModels(prev => [savedModelItem, ...prev]);
+
+                // Sync to localStorage
+                try {
+                  const localModelsStr = localStorage.getItem('medvis_generated_models');
+                  const localModels = localModelsStr ? JSON.parse(localModelsStr) : [];
+                  localStorage.setItem('medvis_generated_models', JSON.stringify([savedModelItem, ...localModels]));
+                } catch (e) {
+                  console.error('LocalStorage write error:', e);
+                }
+
+                // POST to API
+                fetch('/api/models', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    id: newModelId,
+                    topic: label,
+                    prompt: promptUsed,
+                    modelUrl: loadUrl,
+                    imageUrl: generatedImgUrl
+                  })
+                }).then(res => res.json())
+                  .then(saveRes => {
+                    console.log('[3D] Model saved in DB:', saveRes);
+                  })
+                  .catch(err => {
+                    console.error('[3D] Failed to save model in API:', err);
+                  });
+              } else {
+                console.error('[Neural4D] codeStatus=0 but no modelUrl returned');
+              }
+            } else if (pollData.codeStatus === 1) {
+              // Still generating — keep polling
+            } else if (pollData.codeStatus === -1) {
+              complete = true;
+              console.error('[Neural4D] Token invalid/expired (-1)');
+            } else if (pollData.codeStatus === -2) {
+              complete = true;
+              console.error('[Neural4D] UUID not found (-2)');
+            } else if (pollData.codeStatus === -3) {
+              complete = true;
+              console.error('[Neural4D] Generation failed (-3)');
+            }
+          } catch (err) {
+            console.error('[Neural4D] Poll error:', err);
           }
-          
-          if (!complete) {
-            console.warn("[Neural4D] Client polling timed out after 60 seconds.");
-          }
+        }
+
+        if (!complete) {
+          console.warn('[Neural4D] Timed out after 3 minutes');
         }
       }
     } catch (e) {
-      console.error("Failed to generate 3D:", e);
+      console.error('[3D] handleLaunch3D error:', e);
     } finally {
       setIsGenerating3D(false);
     }
   };
+
+  const handleLoadSavedModel = (model: any) => {
+    const rawModel = (['heart', 'brain', 'lungs', 'kidneys'].includes(model.topic.toLowerCase())
+      ? model.topic.toLowerCase()
+      : 'kidneys') as 'heart' | 'brain' | 'lungs' | 'kidneys';
+    
+    setSelectedModel(rawModel);
+    setCustomLabel(model.topic);
+    setNeural4dPrompt(model.prompt);
+    setNeural4dModelUrl(model.model_url);
+    setNeural4dImageUrl(model.image_url || null);
+    setIsGenerating3D(false);
+    setActiveStructure("External Organ Surface");
+    setActiveTab('3d');
+  };
+
+  const handleDeleteSavedModel = async (modelId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    // Update local state
+    setGeneratedModels(prev => prev.filter(m => m.id !== modelId));
+    
+    // Update local storage
+    try {
+      const localModelsStr = localStorage.getItem('medvis_generated_models');
+      if (localModelsStr) {
+        const localModels = JSON.parse(localModelsStr);
+        localStorage.setItem('medvis_generated_models', JSON.stringify(localModels.filter((m: any) => m.id !== modelId)));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    
+    // Delete from API
+    try {
+      await fetch(`/api/models?id=${modelId}`, {
+        method: 'DELETE'
+      });
+    } catch (err) {
+      console.error('Failed to delete model from database:', err);
+    }
+  };
+
 
   // Anatomical details database
   const getAnatomicalDetails = () => {
@@ -905,6 +1191,55 @@ export default function Page() {
 
               <div className="h-[1px] bg-[#2f2f2f] my-3" />
 
+              {/* Neural4D Generated Models Gallery (SQLite & LocalStorage) */}
+              <div className="flex flex-col gap-1 overflow-y-auto max-h-[25vh] pr-1">
+                <p className="text-[10px] font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Compass className="w-3.5 h-3.5 text-[#6f6f6f]" />
+                  Neural4D 3D Models ({generatedModels.length})
+                </p>
+                {generatedModels.length === 0 ? (
+                  <p className="text-[10px] text-[#5f5f5f] px-2.5 italic">No generated models yet. Ask chat to explore organs!</p>
+                ) : (
+                  generatedModels.map((model) => (
+                    <div
+                      key={model.id}
+                      onClick={() => handleLoadSavedModel(model)}
+                      className="group/model flex items-center justify-between w-full p-2 rounded-lg text-xs transition-all text-left truncate cursor-pointer text-[#b4b4b4] hover:bg-[#212121] hover:text-white"
+                    >
+                      <div className="flex items-center gap-2.5 truncate flex-1 pr-1">
+                        {model.image_url ? (
+                          <img
+                            src={model.image_url}
+                            alt={model.topic}
+                            className="w-7 h-7 rounded-md border border-[#2f2f2f] object-cover bg-neutral-900 flex-shrink-0 shadow-sm"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+                        )}
+                        <div className="flex flex-col truncate">
+                          <span className="truncate text-white font-medium text-xs leading-none mb-0.5">{model.topic}</span>
+                          <span className="text-[8px] text-[#6f6f6f] truncate max-w-[120px] font-mono leading-none">
+                            {model.prompt ? model.prompt.replace(/["'\n\r]/g, '') : 'Neural4D Asset'}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteSavedModel(model.id, e)}
+                        title="Delete Saved Model"
+                        className="opacity-0 group-hover/model:opacity-100 p-1 hover:bg-[#2f2f2f] rounded text-[#8e8e8e] hover:text-red-500 transition-all flex-shrink-0"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="h-[1px] bg-[#2f2f2f] my-3" />
+
               {/* Preset Simulators */}
               <div className="flex flex-col gap-1">
                 <p className="text-[10px] font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2">Preset Simulators</p>
@@ -1095,7 +1430,7 @@ export default function Page() {
                                     code: ({node, inline, ...props}: any) => 
                                       inline 
                                         ? <code className="bg-[#2a2a2a] text-cyan-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-[#3f3f3f]" {...props} />
-                                        : <pre className="bg-[#111] p-4 rounded-xl overflow-x-auto border border-[#333] my-4"><code className="text-[#e2e2e2] text-sm font-mono" {...props} /></pre>,
+                                        : <div className="bg-[#111] p-4 rounded-xl overflow-x-auto border border-[#333] my-4 font-mono text-[#e2e2e2] text-sm whitespace-pre-wrap block" {...props} />,
                                     blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-cyan-600 pl-4 py-1 my-4 bg-cyan-950/20 text-[#a0a0a0] italic" {...props} />,
                                     table: ({node, ...props}) => <div className="overflow-x-auto my-4"><table className="w-full text-sm sm:text-base text-left text-[#d4d4d4]" {...props} /></div>,
                                     th: ({node, ...props}) => <th className="px-4 py-2 border-b border-[#3f3f3f] font-bold text-white bg-[#2a2a2a]" {...props} />,
@@ -1177,198 +1512,269 @@ export default function Page() {
               </div>
             )}
 
-            {/* TAB CONTENT: 3D INTERACTIVE LAB */}
-            {/* TAB CONTENT: 3D INTERACTIVE LAB */}
             {activeTab === '3d' && (
               <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden bg-[#1b1b1b]">
                 
-                {/* 3D Viewport Column */}
-                <div className={`w-full md:flex-1 relative flex flex-col bg-[#1b1b1b] border-b md:border-b-0 md:border-r border-[#2f2f2f] overflow-hidden transition-all duration-300 min-h-[320px] ${showHUD ? 'h-[45vh] md:h-full' : 'h-[calc(100vh-70px)] md:h-full'}`}>
-                  
-                  {/* Top Model Options and Label Toggle Button */}
-                  <div className="absolute top-3 left-3 right-3 md:right-auto z-30 flex items-center justify-between md:justify-start gap-2">
-                    <div className="flex gap-1 bg-[#171717]/90 border border-[#2f2f2f] p-1 rounded-xl shadow-xl backdrop-blur-sm overflow-x-auto max-w-[calc(100vw-11.5rem)] md:max-w-none scrollbar-none">
-                      {[
-                        { type: 'heart', label: 'Heart', icon: Heart },
-                        { type: 'brain', label: 'Brain', icon: Brain },
-                        { type: 'lungs', label: 'Lungs', icon: Activity },
-                        { type: 'kidneys', label: 'Kidneys', icon: Activity }
-                      ].map((model) => {
-                        const Icon = model.icon;
-                        return (
-                          <button
-                            key={model.type}
-                            onClick={() => {
-                              setSelectedModel(model.type as any);
-                              setNeural4dModelUrl(null);
-                              setNeural4dPrompt(null);
-                              setCustomLabel(null);
-                              setActiveStructure(
-                                model.type === 'heart' ? 'Left Ventricle' : 
-                                model.type === 'brain' ? 'Cerebral Cortex' : 
-                                model.type === 'lungs' ? 'Pulmonary Lobes' :
-                                'Renal Cortex'
-                              );
-                            }}
-                            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] sm:text-xs font-semibold tracking-wide transition-all flex-shrink-0 ${selectedModel === model.type ? 'bg-cyan-950 border border-cyan-800 text-cyan-400 shadow' : 'text-[#b4b4b4] hover:text-white'}`}
-                          >
-                            <Icon className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                            {model.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {/* Toggle Labels ON/OFF Button */}
-                      <button
-                        onClick={() => setShowLabels(!showLabels)}
-                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] sm:text-xs font-bold border transition-all shadow-xl backdrop-blur-sm ${showLabels ? 'bg-cyan-950 border-cyan-800 text-cyan-400' : 'bg-[#171717]/90 border-[#2f2f2f] text-[#b4b4b4] hover:text-white'}`}
-                      >
-                        <Tag className="w-3 h-3" />
-                        <span>Labels: {showLabels ? 'ON' : 'OFF'}</span>
-                      </button>
-
-                      {/* Toggle HUD ON/OFF Button for Mobile Only */}
-                      <button
-                        onClick={() => setShowHUD(!showHUD)}
-                        className={`md:hidden flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] sm:text-xs font-bold border transition-all shadow-xl backdrop-blur-sm ${showHUD ? 'bg-cyan-950 border-cyan-800 text-cyan-400' : 'bg-[#171717]/90 border-[#2f2f2f] text-[#b4b4b4] hover:text-white'}`}
-                      >
-                        <Sliders className="w-3 h-3" />
-                        <span>HUD: {showHUD ? 'ON' : 'OFF'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 3D Render Output */}
-                  <div className="flex-1 w-full h-full flex items-center justify-center relative">
-                    <ThreeDModel 
-                      type={selectedModel} 
-                      showLabels={showLabels} 
-                      activeStructure={activeStructure}
-                      onStructureSelect={setActiveStructure}
-                      isGenerating={isGenerating3D}
-                      neural4dPrompt={neural4dPrompt}
-                      neural4dModelUrl={neural4dModelUrl}
-                    />
-                  </div>
-
-                  {/* Desktop Only: Live HUD Information Overlay */}
-                  <div className="hidden md:flex absolute bottom-4 left-4 right-4 z-10 justify-between items-end pointer-events-none">
-                    <div className="bg-[#171717]/95 border border-[#2f2f2f] p-4 rounded-xl shadow-xl max-w-sm pointer-events-auto backdrop-blur-sm">
-                      <p className="text-[10px] uppercase font-bold text-cyan-400 tracking-widest mb-1 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
-                        Interactive Structure Highlighted
-                      </p>
-                      <h4 className="text-md font-bold text-white mb-2">{activeStructure}</h4>
-                      <p className="text-xs text-[#b4b4b4] leading-relaxed">
-                        {anatomicalData.info[activeStructure as keyof typeof anatomicalData.info] || "Select an anatomical structure to highlight."}
-                      </p>
-                    </div>
-
-                    <div className="bg-[#171717]/90 border border-[#2f2f2f] px-4 py-3 rounded-xl shadow-xl pointer-events-auto text-[10px] text-[#8e8e8e] leading-relaxed flex flex-col gap-1 backdrop-blur-sm">
-                      <p className="font-semibold text-white">INTERACTION TIPS</p>
-                      <p>🖱️ Drag cursor to orbit & rotate axis</p>
-                      <p>📜 Scroll wheel / trackpad pinch to zoom</p>
-                    </div>
-                  </div>
-
-                </div>
-
-                {/* Mobile Only Info Box (Rendered statically underneath the 3D canvas so it doesn't overlap the visualizer) */}
-                {showHUD && (
-                  <div className="block md:hidden bg-[#171717] px-4 py-4 border-b border-[#2f2f2f]">
-                    <div className="bg-[#1b1b1b] border border-[#2f2f2f] p-4 rounded-xl shadow-md">
-                      <p className="text-[9px] uppercase font-bold text-cyan-400 tracking-widest mb-1 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
-                        Active Structure
-                      </p>
-                      <h4 className="text-sm font-bold text-white mb-1.5">{activeStructure}</h4>
-                      <p className="text-xs text-[#b4b4b4] leading-relaxed">
-                        {anatomicalData.info[activeStructure as keyof typeof anatomicalData.info] || "Select an anatomical structure to highlight."}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Right Structure Selection & Medical Details Panel */}
-                <div className={`w-full md:w-80 bg-[#171717] p-5 flex-col justify-between md:overflow-y-auto select-none border-t md:border-t-0 md:border-l border-[#2f2f2f] ${showHUD ? 'flex md:flex' : 'hidden md:flex'}`}>
-                  <div className="space-y-6">
-                    <div>
-                      <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest mb-1">
-                        Anatomical Lab Module
-                      </p>
-                      <h3 className="text-lg font-bold text-white leading-tight">
-                        {anatomicalData.title}
-                      </h3>
-                      <p className="text-xs text-[#8e8e8e] mt-1">
-                        {anatomicalData.subtitle}
-                      </p>
-                    </div>
-
-                    <div className="h-[1px] bg-[#2f2f2f]" />
-
-                    {/* Structures List */}
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold text-[#8e8e8e] uppercase tracking-wider mb-3">
-                        Key Anatomical Nodes
-                      </p>
-                      {anatomicalData.structures.map((item) => (
+                {!(isGenerating3D || neural4dModelUrl || neural4dImageUrl) ? (
+                  /* Neural4D Gallery Hub (Replaces the procedural mockup models!) */
+                  <div className="flex-1 overflow-y-auto p-6 md:p-10 flex flex-col">
+                    <div className="max-w-5xl mx-auto w-full space-y-8">
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-[#2f2f2f] pb-6">
+                        <div>
+                          <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                            Neural4D Anatomical Lab
+                          </p>
+                          <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+                            Your Custom Generated 3D Organs
+                          </h2>
+                          <p className="text-sm text-[#8e8e8e] mt-2 max-w-2xl leading-relaxed">
+                            Every time you explore medical topics in chat, Neural4D synthesizes actual 3D meshes. Select a generated organ model below to launch the clinical simulator.
+                          </p>
+                        </div>
                         <button
-                          key={item}
-                          onClick={() => setActiveStructure(item)}
-                          className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs text-left font-medium transition-all ${activeStructure === item ? 'bg-cyan-950/40 border-cyan-800 text-white shadow shadow-cyan-950/20' : 'border-[#2f2f2f] hover:border-[#3f3f3f] text-[#b4b4b4] hover:text-white'}`}
+                          onClick={() => setActiveTab('chat')}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 rounded-xl text-xs font-semibold tracking-wide hover:shadow-cyan-950/40 hover:scale-[1.02] active:scale-[0.98] transition-all flex-shrink-0"
                         >
-                          <span className="flex items-center gap-2.5">
-                            <span className={`w-1.5 h-1.5 rounded-full ${activeStructure === item ? 'bg-cyan-400 animate-pulse' : 'bg-neutral-600'}`} />
-                            {item}
-                          </span>
-                          <ChevronRight className="w-3.5 h-3.5 text-[#5f5f5f]" />
+                          <Plus className="w-4 h-4" />
+                          Generate New Organ
                         </button>
-                      ))}
+                      </div>
+
+                      {generatedModels.length === 0 ? (
+                        /* Empty Gallery State */
+                        <div className="border border-[#2f2f2f] bg-[#171717]/60 rounded-2xl p-16 text-center flex flex-col items-center justify-center space-y-6">
+                          <div className="w-16 h-16 rounded-2xl bg-cyan-950/40 border border-cyan-800 flex items-center justify-center text-cyan-400">
+                            <Compass className="w-8 h-8" />
+                          </div>
+                          <div className="space-y-2 max-w-sm">
+                            <h4 className="font-bold text-white text-lg">No Custom Models Deployed Yet</h4>
+                            <p className="text-xs text-[#8e8e8e] leading-relaxed">
+                              Use the Clinical Chat Assistant to ask about any organ system (e.g. "Explain how the heart pumps blood") and the Neural4D synthesis pipeline will create it for you!
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setActiveTab('chat')}
+                            className="px-6 py-3 bg-[#2f2f2f] hover:bg-[#343434] border border-[#3f3f3f] text-white rounded-xl text-xs font-semibold tracking-wide transition-all"
+                          >
+                            Open Chat Assistant
+                          </button>
+                        </div>
+                      ) : (
+                        /* Generated Models Gallery Grid */
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                          {generatedModels.map((model) => (
+                            <div
+                              key={model.id}
+                              onClick={() => handleLoadSavedModel(model)}
+                              className="group relative bg-[#171717]/80 hover:bg-[#171717] border border-[#2f2f2f] hover:border-cyan-800/60 rounded-2xl overflow-hidden cursor-pointer shadow-xl transition-all duration-300 hover:scale-[1.02] flex flex-col justify-between"
+                            >
+                              <div>
+                                {/* Custom Preview Image Card */}
+                                <div className="relative aspect-video w-full bg-[#0a0a0a] border-b border-[#2f2f2f] overflow-hidden">
+                                  {model.image_url ? (
+                                    <img
+                                      src={model.image_url}
+                                      alt={model.topic}
+                                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                      onError={(e) => {
+                                        (e.target as HTMLElement).style.display = 'none';
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="absolute inset-0 flex items-center justify-center text-cyan-400/40">
+                                      <Sparkles className="w-12 h-12" />
+                                    </div>
+                                  )}
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
+                                  <span className="absolute bottom-3 left-3 text-xs font-bold text-white uppercase tracking-wider bg-cyan-950/80 border border-cyan-800/40 px-2.5 py-1 rounded-md backdrop-blur-sm">
+                                    Neural4D Render
+                                  </span>
+                                </div>
+
+                                <div className="p-4 space-y-2">
+                                  <h4 className="font-bold text-white text-base group-hover:text-cyan-400 transition-colors capitalize text-left">
+                                    {model.topic}
+                                  </h4>
+                                  <p className="text-xs text-[#8e8e8e] leading-relaxed line-clamp-3 italic text-left">
+                                    "{model.prompt || 'Generated medical model asset.'}"
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="p-4 border-t border-[#2f2f2f] flex items-center justify-between">
+                                <span className="text-[10px] text-[#5f5f5f] font-mono">
+                                  {new Date(model.created_at).toLocaleDateString()}
+                                </span>
+                                <span className="text-xs font-bold text-cyan-400 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                                  Launch Visualizer
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
+                  </div>
+                ) : (
+                  /* 3D Visualizer Simulator View (Active Custom Model) */
+                  <>
+                    {/* 3D Viewport Column */}
+                    <div className={`w-full md:flex-1 relative flex flex-col bg-[#1b1b1b] border-b md:border-b-0 md:border-r border-[#2f2f2f] overflow-hidden transition-all duration-300 min-h-[320px] ${showHUD ? 'h-[45vh] md:h-full' : 'h-[calc(100vh-70px)] md:h-full'}`}>
+                      
+                      {/* Top Options Bar (Back to gallery button instead of default mockup tabs!) */}
+                      <div className="absolute top-3 left-3 right-3 md:right-auto z-30 flex items-center justify-between md:justify-start gap-2">
+                        <button
+                          onClick={() => {
+                            setNeural4dModelUrl(null);
+                            setNeural4dPrompt(null);
+                            setNeural4dImageUrl(null);
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#171717]/95 border border-[#2f2f2f] text-white hover:border-cyan-800 hover:text-cyan-400 transition-all shadow-xl backdrop-blur-sm"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                          <span>Close Simulator</span>
+                        </button>
 
-                    <div className="h-[1px] bg-[#2f2f2f]" />
-
-                    {/* Quick Simulation Stats */}
-                    <div className="p-4 rounded-xl bg-[#212121]/50 border border-[#2f2f2f] space-y-3">
-                      <p className="text-[10px] text-[#8e8e8e] uppercase font-bold tracking-wider">
-                        Active Telemetry
-                      </p>
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <p className="text-[#8e8e8e] text-[10px]">PULSE FREQ</p>
-                          <p className="font-semibold text-white mt-0.5">72 BPM</p>
-                        </div>
-                        <div>
-                          <p className="text-[#8e8e8e] text-[10px]">CYCLE STATE</p>
-                          <p className="font-semibold text-cyan-400 mt-0.5 uppercase tracking-wide">Pulsing</p>
-                        </div>
-                        <div>
-                          <p className="text-[#8e8e8e] text-[10px]">POLY COUNT</p>
-                          <p className="font-semibold text-white mt-0.5">24.5K</p>
-                        </div>
-                        <div>
-                          <p className="text-[#8e8e8e] text-[10px]">ENGINE</p>
-                          <p className="font-semibold text-white mt-0.5">WebGL 2</p>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {/* Toggle Labels ON/OFF Button */}
+                          <button
+                            onClick={() => setShowLabels(!showLabels)}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all shadow-xl backdrop-blur-sm ${showLabels ? 'bg-cyan-950 border-cyan-800 text-cyan-400' : 'bg-[#171717]/90 border-[#2f2f2f] text-[#b4b4b4] hover:text-white'}`}
+                          >
+                            <Tag className="w-3.5 h-3.5" />
+                            <span>Labels: {showLabels ? 'ON' : 'OFF'}</span>
+                          </button>
                         </div>
                       </div>
+
+                      {/* 3D Render Output */}
+                      <div className="flex-1 w-full h-full flex items-center justify-center relative">
+                        <ThreeDModel 
+                          type={selectedModel} 
+                          showLabels={showLabels} 
+                          activeStructure={activeStructure}
+                          onStructureSelect={setActiveStructure}
+                          isGenerating={isGenerating3D}
+                          neural4dPrompt={neural4dPrompt}
+                          neural4dModelUrl={neural4dModelUrl}
+                          neural4dImageUrl={neural4dImageUrl}
+                          pollProgress={pollProgress}
+                        />
+                      </div>
+
+                      {/* Desktop Only: Live HUD Information Overlay */}
+                      <div className="hidden md:flex absolute bottom-4 left-4 right-4 z-10 justify-between items-end pointer-events-none">
+                        <div className="bg-[#171717]/95 border border-[#2f2f2f] p-4 rounded-xl shadow-xl max-w-sm pointer-events-auto backdrop-blur-sm text-left">
+                          <p className="text-[10px] uppercase font-bold text-cyan-400 tracking-widest mb-1 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
+                            Active Model Telemetry
+                          </p>
+                          <h4 className="text-md font-bold text-white mb-2 capitalize">{customLabel || selectedModel}</h4>
+                          <p className="text-xs text-[#b4b4b4] leading-relaxed line-clamp-3 italic">
+                            {neural4dPrompt ? `"${neural4dPrompt}"` : `High-resolution Neural4D simulation active.`}
+                          </p>
+                        </div>
+
+                        <div className="bg-[#171717]/90 border border-[#2f2f2f] px-4 py-3 rounded-xl shadow-xl pointer-events-auto text-[10px] text-[#8e8e8e] leading-relaxed flex flex-col gap-1 backdrop-blur-sm">
+                          <p className="font-semibold text-white">INTERACTION TIPS</p>
+                          <p>🖱️ Drag cursor to orbit & rotate axis</p>
+                          <p>📜 Scroll wheel / trackpad pinch to zoom</p>
+                        </div>
+                      </div>
+
                     </div>
 
-                  </div>
+                    {/* Right Structure Selection & Medical Details Panel */}
+                    <div className="w-full md:w-80 bg-[#171717] p-5 flex flex-col justify-between md:overflow-y-auto select-none border-t md:border-t-0 md:border-l border-[#2f2f2f]">
+                      <div className="space-y-6">
+                        <div className="text-left">
+                          <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest mb-1">
+                            Anatomical Lab Module
+                          </p>
+                          <h3 className="text-lg font-bold text-white leading-tight capitalize">
+                            {customLabel || selectedModel} System
+                          </h3>
+                          <p className="text-xs text-[#8e8e8e] mt-1 italic">
+                            Custom Neural4D synthesized geometry
+                          </p>
+                        </div>
 
-                  {/* Back to chat assistant button */}
-                  <div className="pt-5 border-t border-[#2f2f2f] mt-6">
-                    <button 
-                      onClick={() => setActiveTab('chat')}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#2f2f2f] hover:bg-[#343434] border border-[#3f3f3f] text-xs font-semibold text-white transition-colors"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      Back to Assistant
-                    </button>
-                  </div>
+                        <div className="h-[1px] bg-[#2f2f2f]" />
 
-                </div>
+                        {/* Structures List */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-[#8e8e8e] uppercase tracking-wider mb-3 text-left">
+                            Anatomical Regions
+                          </p>
+                          {[
+                            "External Organ Surface",
+                            "Veins & Blood Streams",
+                            "Natural Organ Coloration",
+                            "Internal Cavity & Cross-section"
+                          ].map((item) => (
+                            <button
+                              key={item}
+                              onClick={() => setActiveStructure(item)}
+                              className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs text-left font-medium transition-all ${activeStructure === item ? 'bg-cyan-950/40 border-cyan-800 text-white shadow shadow-cyan-950/20' : 'border-[#2f2f2f] hover:border-[#3f3f3f] text-[#b4b4b4] hover:text-white'}`}
+                            >
+                              <span className="flex items-center gap-2.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${activeStructure === item ? 'bg-cyan-400 animate-pulse' : 'bg-neutral-600'}`} />
+                                {item}
+                              </span>
+                              <ChevronRight className="w-3.5 h-3.5 text-[#5f5f5f]" />
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="h-[1px] bg-[#2f2f2f]" />
+
+                        {/* Quick Simulation Stats */}
+                        <div className="p-4 rounded-xl bg-[#212121]/50 border border-[#2f2f2f] space-y-3 text-left">
+                          <p className="text-[10px] text-[#8e8e8e] uppercase font-bold tracking-wider">
+                            Active Telemetry
+                          </p>
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <p className="text-[#8e8e8e] text-[10px]">POLY COUNT</p>
+                              <p className="font-semibold text-white mt-0.5">High Density</p>
+                            </div>
+                            <div>
+                              <p className="text-[#8e8e8e] text-[10px]">RENDER ENGINE</p>
+                              <p className="font-semibold text-cyan-400 mt-0.5 uppercase tracking-wide">Three.js GLTF</p>
+                            </div>
+                            <div>
+                              <p className="text-[#8e8e8e] text-[10px]">PIPELINE</p>
+                              <p className="font-semibold text-white mt-0.5">Neural4D Cloud</p>
+                            </div>
+                            <div>
+                              <p className="text-[#8e8e8e] text-[10px]">CORS PROXY</p>
+                              <p className="font-semibold text-white mt-0.5">Active</p>
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {/* Back to gallery */}
+                      <div className="pt-5 border-t border-[#2f2f2f] mt-6">
+                        <button 
+                          onClick={() => {
+                            setNeural4dModelUrl(null);
+                            setNeural4dPrompt(null);
+                            setNeural4dImageUrl(null);
+                          }}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#2f2f2f] hover:bg-[#343434] border border-[#3f3f3f] text-xs font-semibold text-white transition-colors"
+                        >
+                          <Compass className="w-3.5 h-3.5" />
+                          Close Simulator
+                        </button>
+                      </div>
+
+                    </div>
+                  </>
+                )}
 
               </div>
             )}

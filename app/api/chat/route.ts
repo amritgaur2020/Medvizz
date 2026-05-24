@@ -68,7 +68,7 @@ RESPONSE REQUIREMENTS:
     let aiResponseText = '';
     let data: any = null;
 
-    // ── Call xAI Grok API: model grok-4.20-0309-reasoning ──
+    // ── Call xAI Grok API ──
     try {
       const response = await fetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST',
@@ -99,54 +99,53 @@ RESPONSE REQUIREMENTS:
     }
 
     // ── Determine 3D model suggestion based on keywords ──
+    // PRIORITY: User query always wins. AI response is only used as a last resort.
     let modelSuggestion: string | null = null;
     let labelSuggestion: string | null = null;
 
-    // 1. Check direct user query intent first
-    const lowerQuery = lastMessage.text.toLowerCase();
-    
-    if (lowerQuery.includes('lung') || lowerQuery.includes('respir') || lowerQuery.includes('breath') || lowerQuery.includes('pulmonary') || lowerQuery.includes('alveoli') || lowerQuery.includes('trachea')) {
-      modelSuggestion = 'lungs';
-      labelSuggestion = 'Trachea & Pulmonary Lobes';
-    } else if (lowerQuery.includes('urinary') || lowerQuery.includes('kidney') || lowerQuery.includes('renal') || lowerQuery.includes('nephron') || lowerQuery.includes('bladder') || lowerQuery.includes('urethra') || lowerQuery.includes('ureter')) {
-      modelSuggestion = 'kidneys';
-      labelSuggestion = 'Urinary System';
-    } else if (lowerQuery.includes('brain') || lowerQuery.includes('cerebral') || lowerQuery.includes('synap') || lowerQuery.includes('neural') || lowerQuery.includes('cortex') || lowerQuery.includes('neuron') || lowerQuery.includes('nervous')) {
-      modelSuggestion = 'brain';
-      labelSuggestion = 'Cerebral Cortex';
-    } else if (lowerQuery.includes('heart') || lowerQuery.includes('cardio') || lowerQuery.includes('coronary') || lowerQuery.includes('myocardium') || lowerQuery.includes('ventricle') || lowerQuery.includes('atrium') || lowerQuery.includes('aorta') || lowerQuery.includes('circulation')) {
-      modelSuggestion = 'heart';
-      labelSuggestion = 'Aorta & Ventricles';
+    // Helper: detect model from text
+    function detectModel(text: string): { model: string; label: string } | null {
+      const t = text.toLowerCase();
+      if (t.includes('urinary') || t.includes('kidney') || t.includes('renal') || t.includes('nephron') || t.includes('bladder') || t.includes('urethra') || t.includes('ureter') || t.includes('glomerulus') || t.includes('glomeruli')) {
+        return { model: 'kidneys', label: 'Urinary System' };
+      }
+      if (t.includes('lung') || t.includes('respir') || t.includes('breath') || t.includes('pulmonary') || t.includes('alveoli') || t.includes('trachea') || t.includes('bronch')) {
+        return { model: 'lungs', label: 'Pulmonary System' };
+      }
+      if (t.includes('brain') || t.includes('cerebral') || t.includes('synap') || t.includes('neuron') || t.includes('cerebellum') || t.includes('nervous system') || t.includes('cortex')) {
+        return { model: 'brain', label: 'Nervous System' };
+      }
+      if (t.includes('heart') || t.includes('cardio') || t.includes('coronary') || t.includes('myocardium') || t.includes('ventricle') || t.includes('atrium') || t.includes('aorta') || t.includes('circulation')) {
+        return { model: 'heart', label: 'Cardiovascular System' };
+      }
+      // General body part / system extraction
+      const systemMatch = text.match(/\b([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+system\b/i);
+      if (systemMatch) {
+        const sysName = systemMatch[1].trim();
+        const label = sysName.charAt(0).toUpperCase() + sysName.slice(1).toLowerCase() + ' System';
+        return { model: 'kidneys', label };
+      }
+      const organMatch = text.match(/\b(liver|stomach|intestine|pancreas|spleen|gallbladder|thyroid|prostate|uterus|ovaries|bone|muscle|skin|skeletal|lymph|immune|digestive|endocrine|reproductive|musculoskeletal)\b/i);
+      if (organMatch) {
+        const organ = organMatch[1].charAt(0).toUpperCase() + organMatch[1].slice(1).toLowerCase();
+        return { model: 'kidneys', label: `${organ} System` };
+      }
+      return null;
     }
 
-    // 2. Fallback to AI response text keywords if query is neutral
-    if (!modelSuggestion) {
-      const lowerResponse = aiResponseText.toLowerCase();
-      
-      if (lowerResponse.includes('lung') || lowerResponse.includes('respir') || lowerResponse.includes('breath') || lowerResponse.includes('pulmonary') || lowerResponse.includes('alveoli') || lowerResponse.includes('trachea')) {
-        modelSuggestion = 'lungs';
-        labelSuggestion = 'Trachea & Pulmonary Lobes';
-      } else if (lowerResponse.includes('urinary') || lowerResponse.includes('kidney') || lowerResponse.includes('renal') || lowerResponse.includes('nephron') || lowerResponse.includes('bladder') || lowerResponse.includes('urethra') || lowerResponse.includes('ureter')) {
-        modelSuggestion = 'kidneys';
-        labelSuggestion = 'Urinary System';
-      } else if (lowerResponse.includes('brain') || lowerResponse.includes('cerebral') || lowerResponse.includes('synap') || lowerResponse.includes('neural') || lowerResponse.includes('cortex') || lowerResponse.includes('neuron') || lowerResponse.includes('nervous')) {
-        modelSuggestion = 'brain';
-        labelSuggestion = 'Cerebral Cortex';
-      } else if (lowerResponse.includes('heart') || lowerResponse.includes('cardio') || lowerResponse.includes('coronary') || lowerResponse.includes('myocardium') || lowerResponse.includes('ventricle') || lowerResponse.includes('atrium') || lowerResponse.includes('aorta') || lowerResponse.includes('circulation')) {
-        modelSuggestion = 'heart';
-        labelSuggestion = 'Aorta & Ventricles';
-      } else {
-        // General custom dynamic body part extraction fallback
-        const systemMatches = lastMessage.text.match(/([a-zA-Z]+ system)/i);
-        const organMatches = lastMessage.text.match(/(liver|stomach|intestine|pancreas|spleen|gallbladder|thyroid|prostate|uterus|ovaries|bones|muscles|skin|skeletal)/i);
-        if (systemMatches) {
-          modelSuggestion = 'kidneys'; // Default 3D canvas container to kidneys/renal for custom ones
-          labelSuggestion = systemMatches[0].charAt(0).toUpperCase() + systemMatches[0].slice(1).toLowerCase();
-        } else if (organMatches) {
-          modelSuggestion = 'kidneys';
-          const organ = organMatches[0].charAt(0).toUpperCase() + organMatches[0].slice(1).toLowerCase();
-          labelSuggestion = `${organ} System`;
-        }
+    // 1. User query has absolute priority
+    const queryDetection = detectModel(lastMessage.text);
+    if (queryDetection) {
+      modelSuggestion = queryDetection.model;
+      labelSuggestion = queryDetection.label;
+    }
+
+    // 2. Only fall back to AI response if query gave no match
+    if (!modelSuggestion && aiResponseText && !aiResponseText.includes('⚠️')) {
+      const responseDetection = detectModel(aiResponseText);
+      if (responseDetection) {
+        modelSuggestion = responseDetection.model;
+        labelSuggestion = responseDetection.label;
       }
     }
 

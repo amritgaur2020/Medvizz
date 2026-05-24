@@ -13,6 +13,8 @@ interface ThreeDModelProps {
   isGenerating?: boolean;
   neural4dPrompt?: string | null;
   neural4dModelUrl?: string | null;
+  neural4dImageUrl?: string | null;
+  pollProgress?: number;
 }
 
 // 3D coordinates on each modular anatomy model
@@ -80,7 +82,9 @@ export function ThreeDModel({
   onStructureSelect,
   isGenerating = false,
   neural4dPrompt = null,
-  neural4dModelUrl = null
+  neural4dModelUrl = null,
+  neural4dImageUrl = null,
+  pollProgress = 0
 }: ThreeDModelProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [nodePositions, setNodePositions] = React.useState<Array<{ name: string; x: number; y: number; dx: number; dy: number }>>([]);
@@ -106,17 +110,17 @@ export function ThreeDModel({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     mount.appendChild(renderer.domElement);
 
-    // Add Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    // Add Lights - Standard studio white rig to show the true organic colors and textures
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
     scene.add(ambientLight);
 
-    const pointLight1 = new THREE.PointLight(0x06b6d4, 2.5, 50); // cyan/teal light
-    pointLight1.position.set(5, 5, 5);
-    scene.add(pointLight1);
+    const directionalLight1 = new THREE.DirectionalLight(0xffffff, 1.8);
+    directionalLight1.position.set(6, 10, 6);
+    scene.add(directionalLight1);
 
-    const pointLight2 = new THREE.PointLight(0xffffff, 0.5, 50);
-    pointLight2.position.set(-5, -5, -5);
-    scene.add(pointLight2);
+    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.85);
+    directionalLight2.position.set(-6, -4, -6);
+    scene.add(directionalLight2);
 
     const group = new THREE.Group();
     scene.add(group);
@@ -292,53 +296,66 @@ export function ThreeDModel({
     mainMesh = new THREE.Group();
     group.add(mainMesh);
 
+    // Organ-specific color palettes for the loaded GLB model
+    const organColors: Record<string, { primary: number; emissive: number; particle: number }> = {
+      heart:   { primary: 0xc0392b, emissive: 0x4a0000, particle: 0xef4444 },
+      brain:   { primary: 0x06b6d4, emissive: 0x083344, particle: 0x22d3ee },
+      lungs:   { primary: 0x14b8a6, emissive: 0x042f2e, particle: 0x2dd4bf },
+      kidneys: { primary: 0x8b5cf6, emissive: 0x2e1065, particle: 0xa78bfa },
+    };
+    const colors = organColors[type] || organColors.kidneys;
+
     if (neural4dModelUrl && neural4dModelUrl !== 'fallback') {
       const loader = new GLTFLoader();
-      console.log("[ThreeDModel] Dynamic load of Neural4D model URL:", neural4dModelUrl);
+      console.log("[ThreeDModel] Loading Neural4D model:", neural4dModelUrl);
       loader.load(
         neural4dModelUrl,
         (gltf: any) => {
-          console.log("[ThreeDModel] GLTF loaded successfully!", gltf);
+          console.log("[ThreeDModel] Neural4D GLTF loaded successfully!");
           const loadedModel = gltf.scene;
-          
-          // Auto-adjust scale & position
+
+          // Auto-center and scale to fit viewport
           const box = new THREE.Box3().setFromObject(loadedModel);
           const size = box.getSize(new THREE.Vector3());
           const center = box.getCenter(new THREE.Vector3());
-          
-          loadedModel.position.x += (loadedModel.position.x - center.x);
-          loadedModel.position.y += (loadedModel.position.y - center.y);
-          loadedModel.position.z += (loadedModel.position.z - center.z);
-          
+          loadedModel.position.sub(center);
           const maxDim = Math.max(size.x, size.y, size.z);
-          const scale = maxDim > 0 ? 3.0 / maxDim : 1.0;
+          const scale = maxDim > 0 ? 3.2 / maxDim : 1.0;
           loadedModel.scale.set(scale, scale, scale);
-          
+
+          // Keep original photorealistic Neural4D colors, textures, and materials!
           loadedModel.traverse((child: any) => {
-            if ((child as any).isMesh) {
-              const mesh = child as any;
-              if (mesh.material) {
-                if (Array.isArray(mesh.material)) {
-                  mesh.material.forEach((m: any) => { m.side = THREE.DoubleSide; });
-                } else {
-                  mesh.material.side = THREE.DoubleSide;
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+              
+              if (child.material) {
+                // Ensure textures are rendered clearly on both sides and responsive to light
+                child.material.side = THREE.DoubleSide;
+                child.material.transparent = false;
+                
+                // If it is standard material, make sure organic details pop under studio lights
+                if (child.material.metalness !== undefined) {
+                  child.material.metalness = 0.15;
+                }
+                if (child.material.roughness !== undefined) {
+                  child.material.roughness = 0.75;
                 }
               }
             }
           });
-          
+
           mainMesh.add(loadedModel);
-          particles = createParticles(150, 2.8, 0x06b6d4);
+          particles = createParticles(150, 2.8, colors.particle);
           mainMesh.add(particles);
         },
         undefined,
         (err: any) => {
-          console.error("[ThreeDModel] GLTF load error, falling back to procedural", err);
-          renderProcedural();
+          console.error("[ThreeDModel] GLTF load error:", err);
         }
       );
     } else {
-      renderProcedural();
+      console.log("[ThreeDModel] No custom model url, leaving canvas clean.");
     }
 
 
@@ -431,33 +448,110 @@ export function ThreeDModel({
 
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-transparent">
-      {isGenerating && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#171717]/80 backdrop-blur-md rounded-xl overflow-hidden border border-cyan-900/50">
-          <div className="relative w-48 h-48 mb-6">
-            <div className="absolute inset-0 border-4 border-cyan-500/20 rounded-full animate-spin-slow"></div>
-            <div className="absolute inset-0 border-t-4 border-cyan-400 rounded-full animate-spin"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-cyan-400 font-bold tracking-widest text-sm animate-pulse">Neural4D</span>
+      {/* 1. Large High-Res 2D generated image preview (Only show if 3D model is not loaded yet) */}
+      {neural4dImageUrl && !neural4dModelUrl && !isGenerating && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#0d0d0d] p-6 text-center select-none">
+          <div className="relative max-w-md w-full bg-[#171717]/95 border border-cyan-800/40 rounded-3xl p-6 shadow-2xl backdrop-blur-md flex flex-col items-center gap-4 group">
+            <div className="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
+            
+            <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest flex items-center gap-1.5">
+              <span className="w-2 h-2 bg-cyan-400 rounded-full animate-ping" />
+              Neural4D Diagnostic Telemetry
+            </p>
+            
+            {/* Clinical Crosshair Scanner Box */}
+            <div className="relative aspect-video w-full rounded-2xl overflow-hidden border border-[#2f2f2f] bg-black/50 group-hover:border-cyan-800/50 transition-all duration-300">
+              <img
+                src={neural4dImageUrl}
+                alt="Neural4D High-Resolution Synthesis"
+                className="w-full h-full object-cover select-none"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-80" />
+              
+              {/* Sci-Fi crosshairs in corners */}
+              <div className="absolute top-3 left-3 w-4 h-4 border-t-2 border-l-2 border-cyan-500/40" />
+              <div className="absolute top-3 right-3 w-4 h-4 border-t-2 border-r-2 border-cyan-500/40" />
+              <div className="absolute bottom-3 left-3 w-4 h-4 border-b-2 border-l-2 border-cyan-500/40" />
+              <div className="absolute bottom-3 right-3 w-4 h-4 border-b-2 border-r-2 border-cyan-500/40" />
             </div>
-          </div>
-          <h3 className="text-white font-semibold text-lg mb-2">Generating 3D Anatomy...</h3>
-          <div className="max-w-md w-full px-6 text-center">
-            <p className="text-xs text-[#8e8e8e] mb-3 uppercase tracking-widest font-mono">Real-Time Text-to-3D Synthesis</p>
-            {neural4dPrompt ? (
-              <div className="bg-[#111] border border-[#2f2f2f] rounded p-3 text-left">
-                <span className="text-cyan-500 text-[10px] font-bold block mb-1">AI PROMPT ENGINERING:</span>
-                <p className="text-[11px] text-[#b4b4b4] italic leading-relaxed">"{neural4dPrompt}"</p>
-              </div>
-            ) : (
-              <div className="h-12 flex items-center justify-center">
-                <div className="flex gap-1">
-                  <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce"></div>
-                  <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce delay-75"></div>
-                  <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce delay-150"></div>
-                </div>
+
+            <div className="space-y-1 max-w-sm">
+              <h4 className="text-white font-extrabold text-base capitalize">{type} Synthesis Complete</h4>
+              <p className="text-xs text-[#8e8e8e] leading-relaxed">
+                Diagnostic snapshot of your chat history successfully loaded. The interactive 3D model is active and rendering.
+              </p>
+            </div>
+            
+            {neural4dPrompt && (
+              <div className="w-full bg-black/40 border border-[#2f2f2f] rounded-xl p-3 text-left">
+                <span className="text-[9px] text-[#5f5f5f] font-mono block mb-1">ENGINEERED PROMPT:</span>
+                <p className="text-[10px] text-[#b4b4b4] italic leading-relaxed line-clamp-3">"{neural4dPrompt}"</p>
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* 2. Floating mini snapshot card (Only show when 3D model is active) */}
+      {neural4dImageUrl && neural4dModelUrl && !isGenerating && (
+        <div className="absolute top-16 right-4 z-30 pointer-events-auto bg-[#171717]/95 border border-cyan-800/40 p-2.5 rounded-2xl shadow-2xl backdrop-blur-md max-w-[130px] transition-all duration-300 hover:scale-105 hover:border-cyan-500/80 group">
+          <p className="text-[9px] font-bold text-cyan-400 uppercase tracking-widest mb-1.5 text-center flex items-center justify-center gap-1">
+            <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse" />
+            Neural4D Snapshot
+          </p>
+          <div className="relative rounded-lg overflow-hidden border border-[#2f2f2f] bg-[#0a0a0a]">
+            <img
+              src={neural4dImageUrl}
+              alt="Neural4D Generated Preview"
+              className="w-28 h-28 object-cover select-none"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {isGenerating && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#0d0d0d]/90 backdrop-blur-md rounded-xl overflow-hidden border border-cyan-900/40">
+          {/* Spinning ring */}
+          <div className="relative w-36 h-36 mb-5">
+            <div className="absolute inset-0 rounded-full border-4 border-cyan-900/30"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-cyan-400 animate-spin"></div>
+            <div className="absolute inset-2 rounded-full border-2 border-transparent border-t-cyan-600/60 animate-spin" style={{animationDuration:'1.5s', animationDirection:'reverse'}}></div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+              <span className="text-cyan-400 font-black tracking-widest text-xs">NEURAL4D</span>
+              <span className="text-cyan-300 font-bold text-lg">{pollProgress > 0 ? `${pollProgress}%` : '...'}</span>
+            </div>
+          </div>
+
+          <h3 className="text-white font-semibold text-base mb-1">Generating 3D Model</h3>
+          <p className="text-[#6b6b6b] text-[11px] uppercase tracking-widest mb-4 font-mono">AI Text-to-3D Synthesis · ~90s</p>
+
+          {/* Progress bar */}
+          <div className="w-64 h-1.5 bg-[#1f1f1f] rounded-full overflow-hidden mb-4">
+            <div
+              className="h-full bg-gradient-to-r from-cyan-600 to-cyan-400 rounded-full transition-all duration-500"
+              style={{ width: `${Math.max(4, pollProgress)}%` }}
+            />
+          </div>
+
+          {/* Grok-engineered prompt */}
+          {neural4dPrompt ? (
+            <div className="mx-6 bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-3 max-w-sm w-full">
+              <span className="text-cyan-500 text-[9px] font-bold uppercase tracking-widest block mb-1.5">Grok Prompt Engineering</span>
+              <p className="text-[10px] text-[#888] italic leading-relaxed line-clamp-3">"{neural4dPrompt}"</p>
+            </div>
+          ) : (
+            <div className="flex gap-1.5 mt-1">
+              <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></div>
+              <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce" style={{animationDelay:'150ms'}}></div>
+              <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce" style={{animationDelay:'300ms'}}></div>
+            </div>
+          )}
         </div>
       )}
       
@@ -472,7 +566,7 @@ export function ThreeDModel({
       {!isGenerating && neural4dModelUrl && (
         <div className="absolute bottom-4 right-4 pointer-events-none flex items-center gap-1.5 border border-cyan-800 px-2 py-1 rounded bg-cyan-950">
           <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-          <span className="text-[10px] text-cyan-400 font-bold tracking-wider">NEURAL4D ASSET LOADED</span>
+          <span className="text-[10px] text-cyan-400 font-bold tracking-wider">NEURAL4D MODEL LOADED</span>
         </div>
       )}
 
