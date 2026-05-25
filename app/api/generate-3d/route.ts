@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createGeneratedModel } from '@/lib/db';
+import { uploadModelToR2, uploadPreviewToR2, getR2PublicUrl, uploadMetadataToR2 } from '@/lib/r2';
 
 // Helper functions to safely decode API keys without triggering GitHub Push Protection
 function getXaiKey(): string {
@@ -140,18 +140,20 @@ export async function POST(req: Request) {
     const modelId = 'model_' + Date.now();
     let storedRecord: any = null;
     try {
-      storedRecord = createGeneratedModel(
-        modelId,
+      storedRecord = {
+        id: modelId,
         topic,
         prompt,
-        'fallback',
-        null,
-        title || topic,
-        userId || 'user_default'
-      );
-      console.log('[Neural4D] Stored fallback model in SQLite:', storedRecord);
+        model_url: 'fallback',
+        image_url: null,
+        title: title || topic,
+        user_id: userId || 'user_default',
+        created_at: new Date().toISOString()
+      };
+      await uploadMetadataToR2(modelId, storedRecord);
+      console.log('[Neural4D] Stored fallback model metadata in R2:', storedRecord);
     } catch (dbErr) {
-      console.error('[Neural4D] Error storing fallback model in SQLite:', dbErr);
+      console.error('[Neural4D] Error storing fallback model metadata in R2:', dbErr);
     }
 
     return NextResponse.json({
@@ -216,41 +218,91 @@ export async function GET(req: Request) {
     //   codeStatus -3 = generation failed
 
     if (data.codeStatus === 0) {
-      const modelUrl: string = data.modelUrl || data.glbUrl || data.url || '';
-      console.log('[Neural4D] Generation complete! modelUrl:', modelUrl);
+      const neural4dModelUrl: string = data.modelUrl || data.glbUrl || data.url || '';
+      const neural4dImageUrl: string = data.imageUrl || '';
+      console.log('[Neural4D] Generation complete! modelUrl:', neural4dModelUrl);
 
-      // Return both the original URL and a proxy path so the browser can load it
-      // without CORS issues (COS URLs may not have CORS headers for our domain).
-      const proxyUrl = modelUrl
-        ? `/api/proxy-model?url=${encodeURIComponent(modelUrl)}`
-        : null;
+      const modelId = 'model_' + Date.now();
 
-      // Save to SQLite
-      let storedRecord: any = null;
-      if (modelUrl) {
+      // ── Upload GLB and preview image to Cloudflare R2 ──────────────────────
+      let r2ModelUrl: string | null = null;
+      let r2ImageUrl: string | null = null;
+
+      if (neural4dModelUrl) {
         try {
-          const modelId = 'model_' + Date.now();
-          storedRecord = createGeneratedModel(
-            modelId,
-            topic,
-            prompt,
-            modelUrl,
-            data.imageUrl || null,
-            title,
-            userId
-          );
-          console.log('[Neural4D] Model successfully saved to SQLite:', storedRecord);
-        } catch (dbErr) {
-          console.error('[Neural4D] Error storing model to SQLite:', dbErr);
+          console.log('[R2] Downloading GLB from Neural4D COS...');
+          const glbRes = await fetch(neural4dModelUrl, {
+            headers: { 'User-Agent': 'MedVis/1.0' },
+          });
+          if (glbRes.ok) {
+            const glbBuffer = await glbRes.arrayBuffer();
+            r2ModelUrl = await uploadModelToR2(modelId, glbBuffer, 'model/gltf-binary');
+            console.log('[R2] GLB uploaded successfully:', r2ModelUrl);
+          } else {
+            console.error('[R2] Failed to download GLB from Neural4D:', glbRes.status);
+          }
+        } catch (r2Err) {
+          console.error('[R2] Error uploading GLB to R2:', r2Err);
         }
+      }
+
+      if (neural4dImageUrl) {
+        try {
+          console.log('[R2] Downloading preview image from Neural4D...');
+          const imgRes = await fetch(neural4dImageUrl, {
+            headers: { 'User-Agent': 'MedVis/1.0' },
+          });
+          if (imgRes.ok) {
+            const imgBuffer = await imgRes.arrayBuffer();
+            const contentType = imgRes.headers.get('content-type') || 'image/png';
+            r2ImageUrl = await uploadPreviewToR2(modelId, imgBuffer, contentType);
+            console.log('[R2] Preview uploaded successfully:', r2ImageUrl);
+          } else {
+            console.error('[R2] Failed to download preview from Neural4D:', imgRes.status);
+          }
+        } catch (r2Err) {
+          console.error('[R2] Error uploading preview to R2:', r2Err);
+        }
+      }
+
+      // Use R2 URL if available, otherwise fall back to proxy of Neural4D COS URL
+      const finalModelUrl = r2ModelUrl || neural4dModelUrl;
+      const finalImageUrl = r2ImageUrl || neural4dImageUrl || null;
+
+      // proxyUrl: if stored in R2, serve directly; otherwise proxy through our server
+      const proxyUrl = r2ModelUrl
+        ? r2ModelUrl  // R2 public URL — no proxy needed, CORS is handled by R2
+        : neural4dModelUrl
+          ? `/api/proxy-model?url=${encodeURIComponent(neural4dModelUrl)}`
+          : null;
+
+      // ── Save to R2 ─────────────────────────────────────────────────────
+      let storedRecord: any = null;
+      try {
+        storedRecord = {
+          id: modelId,
+          topic,
+          prompt,
+          model_url: finalModelUrl,
+          image_url: finalImageUrl,
+          title,
+          user_id: userId,
+          created_at: new Date().toISOString()
+        };
+        await uploadMetadataToR2(modelId, storedRecord);
+        console.log('[Neural4D] Model successfully saved to R2:', storedRecord);
+      } catch (dbErr) {
+        console.error('[Neural4D] Error storing model to R2:', dbErr);
       }
 
       return NextResponse.json({
         success: true,
         codeStatus: 0,
-        modelUrl,
-        proxyUrl,   // use this in Three.js GLTFLoader
-        imageUrl: data.imageUrl || null,
+        modelUrl: finalModelUrl,
+        proxyUrl,          // use this in Three.js GLTFLoader
+        imageUrl: finalImageUrl,
+        r2ModelUrl,        // R2 URL (null if upload failed)
+        r2ImageUrl,        // R2 preview URL (null if upload failed)
         prompts: data.prompts || null,
         modelRecord: storedRecord
       });

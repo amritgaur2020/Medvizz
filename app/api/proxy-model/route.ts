@@ -17,17 +17,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'url parameter is required' }, { status: 400 });
     }
 
-    // Only allow Neural4D COS URLs to prevent open-proxy abuse
+    // Only allow Neural4D COS URLs and Cloudflare R2 public URLs to prevent open-proxy abuse
+    const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
     const allowed = [
       'cos.znkj.com',
       'neural4d.com',
       'alb.neural4d.com',
       'cos.ap-',       // Tencent COS regions
       'myqcloud.com',  // Tencent COS
+      'r2.dev',        // Cloudflare R2 public buckets
+      ...(r2PublicUrl ? [new URL(r2PublicUrl).hostname] : []),
     ];
     const isAllowed = allowed.some(domain => modelUrl.includes(domain));
     if (!isAllowed) {
-      console.warn('[proxy-model] Blocked non-Neural4D URL:', modelUrl);
+      console.warn('[proxy-model] Blocked non-allowed URL:', modelUrl);
       return NextResponse.json({ error: 'URL not allowed' }, { status: 403 });
     }
 

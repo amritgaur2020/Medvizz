@@ -65,6 +65,35 @@ export default function Page() {
   const [showLabels, setShowLabels] = useState(true);
   const [showHUD, setShowHUD] = useState(true);
   
+  // Google Auth & SSO session states
+  const [user, setUser] = useState<{ name: string; email: string; avatar: string } | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customEmail, setCustomEmail] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  const handleLaunchClick = (activeTabAfterLogin: 'chat' | '3d' = 'chat') => {
+    // Attempt to pull user session from state or localStorage
+    let currentSessionUser = user;
+    if (!currentSessionUser) {
+      try {
+        const stored = localStorage.getItem('medvis_user');
+        if (stored) {
+          currentSessionUser = JSON.parse(stored);
+          setUser(currentSessionUser);
+        }
+      } catch (_) {}
+    }
+
+    if (currentSessionUser) {
+      setActiveTab(activeTabAfterLogin);
+      setShowDashboard(true);
+    } else {
+      setShowAuthModal(true);
+    }
+  };
+  
   // Neural4D Integration State
   const [isGenerating3D, setIsGenerating3D] = useState(false);
   const [neural4dPrompt, setNeural4dPrompt] = useState<string | null>(null);
@@ -93,6 +122,14 @@ export default function Page() {
   const [generatedModels, setGeneratedModels] = useState<any[]>([]);
 
   useEffect(() => {
+    // ── Load User Session on Mount ──
+    try {
+      const stored = localStorage.getItem('medvis_user');
+      if (stored) {
+        setUser(JSON.parse(stored));
+      }
+    } catch (_) {}
+
     const initData = async () => {
       // ── 1. Load Sessions ──
       try {
@@ -796,6 +833,186 @@ export default function Page() {
 
   const anatomicalData = getAnatomicalDetails();
 
+  // ── Premium Google SSO Auth Modal ──
+  const AuthModal = () => {
+    const handleGoogleSignInMock = async (name: string, email: string, avatar: string) => {
+      setIsAuthLoading(true);
+      // Simulate premium Google SSO consent redirection wait
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const newUser = { name, email, avatar };
+      localStorage.setItem('medvis_user', JSON.stringify(newUser));
+      setUser(newUser);
+      setIsAuthLoading(false);
+      setShowAuthModal(false);
+      setShowDashboard(true);
+    };
+
+    const handleCustomSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!customName.trim() || !customEmail.trim()) return;
+      const mockAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(customName)}&backgroundColor=06b6d4&textColor=ffffff`;
+      handleGoogleSignInMock(customName.trim(), customEmail.trim(), mockAvatar);
+    };
+
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-md transition-all duration-300">
+        <div className="relative w-full max-w-[420px] bg-[#1a1a1a]/95 border border-[#2f2f2f]/80 rounded-[28px] p-8 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] flex flex-col text-left overflow-hidden">
+          
+          {/* Top glowing strip */}
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-500 via-yellow-500 via-blue-500 to-green-500" />
+
+          {/* Close button */}
+          <button 
+            onClick={() => {
+              if (!isAuthLoading) {
+                setShowAuthModal(false);
+                setShowCustomInput(false);
+              }
+            }}
+            disabled={isAuthLoading}
+            className="absolute top-4 right-4 p-2 rounded-full hover:bg-white/5 text-[#8e8e8e] hover:text-white transition-colors"
+          >
+            <Plus className="w-5 h-5 rotate-45" />
+          </button>
+
+          {/* Loading state overlay */}
+          {isAuthLoading ? (
+            <div className="flex flex-col items-center justify-center py-16 space-y-5">
+              <div className="relative w-14 h-14">
+                <div className="absolute inset-0 border-4 border-cyan-500/10 rounded-full" />
+                <div className="absolute inset-0 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+              <div className="space-y-1.5 text-center">
+                <h4 className="font-bold text-white text-md">Connecting Google Account</h4>
+                <p className="text-xs text-[#8e8e8e]">Authorizing secure MedVis AI session via Google SSO...</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Header logo / branding */}
+              <div className="flex items-center gap-2 mb-6">
+                <GoogleIcon />
+                <span className="text-xs font-bold text-[#8e8e8e] tracking-widest uppercase">Google Accounts</span>
+              </div>
+
+              <div className="space-y-2 mb-8">
+                <h3 className="text-2xl font-extrabold text-white tracking-tight">Sign in with Google</h3>
+                <p className="text-xs text-[#8e8e8e]">to continue to <span className="text-cyan-400 font-semibold">MedVis AI Clinical Lab</span></p>
+              </div>
+
+              {!showCustomInput ? (
+                <div className="space-y-3.5">
+                  {/* Account selections */}
+                  <button
+                    onClick={() => handleGoogleSignInMock(
+                      'Amrit Gaur', 
+                      'amritgaur2020@gmail.com', 
+                      'https://api.dicebear.com/7.x/avataaars/svg?seed=Amrit'
+                    )}
+                    className="w-full flex items-center gap-3.5 p-3 rounded-2xl border border-[#2f2f2f] hover:border-[#3f3f3f] bg-[#212121]/30 hover:bg-[#212121]/70 transition-all text-left group"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center font-bold text-white text-sm">
+                      AG
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white group-hover:text-cyan-400 transition-colors">Amrit Gaur</p>
+                      <p className="text-xs text-[#8e8e8e] truncate">amritgaur2020@gmail.com</p>
+                    </div>
+                    <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider bg-cyan-950/80 border border-cyan-800/40 px-2 py-0.5 rounded-md">Default</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleGoogleSignInMock(
+                      'Dr. Sarah Jenkins', 
+                      'sjenkins@medvis.ai', 
+                      'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah'
+                    )}
+                    className="w-full flex items-center gap-3.5 p-3 rounded-2xl border border-[#2f2f2f] hover:border-[#3f3f3f] bg-[#212121]/30 hover:bg-[#212121]/70 transition-all text-left group"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-600 to-cyan-500 flex items-center justify-center font-bold text-white text-sm">
+                      SJ
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white group-hover:text-cyan-400 transition-colors">Dr. Sarah Jenkins</p>
+                      <p className="text-xs text-[#8e8e8e] truncate">sjenkins@medvis.ai</p>
+                    </div>
+                    <span className="text-[10px] text-[#8e8e8e] font-medium uppercase tracking-wider bg-[#212121] border border-[#2f2f2f] px-2 py-0.5 rounded-md">Guest</span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowCustomInput(true)}
+                    className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl border border-[#2f2f2f] hover:border-cyan-800 bg-[#212121]/20 hover:bg-[#171717] transition-all text-left group"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-[#2f2f2f] flex items-center justify-center text-white">
+                      <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-white group-hover:text-cyan-400 transition-colors">Use another account</p>
+                      <p className="text-xs text-[#8e8e8e]">Sign in with custom Google profile</p>
+                    </div>
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleCustomSubmit} className="space-y-4">
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-[#8e8e8e] tracking-wider mb-1.5">Full Name</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={customName}
+                        onChange={(e) => setCustomName(e.target.value)}
+                        placeholder="e.g. John Doe"
+                        className="w-full px-4 py-3 bg-[#212121] border border-[#2f2f2f] text-white text-sm rounded-xl focus:outline-none focus:border-cyan-700 transition-colors placeholder-[#5f5f5f]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-[#8e8e8e] tracking-wider mb-1.5">Google Email Address</label>
+                      <input 
+                        type="email" 
+                        required
+                        value={customEmail}
+                        onChange={(e) => setCustomEmail(e.target.value)}
+                        placeholder="e.g. johndoe@gmail.com"
+                        className="w-full px-4 py-3 bg-[#212121] border border-[#2f2f2f] text-white text-sm rounded-xl focus:outline-none focus:border-cyan-700 transition-colors placeholder-[#5f5f5f]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomInput(false)}
+                      className="px-4 py-3 border border-[#2f2f2f] hover:border-[#3f3f3f] text-[#8e8e8e] hover:text-white rounded-xl text-xs font-semibold tracking-wide transition-all"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold rounded-xl text-xs tracking-wider uppercase transition-all shadow-md"
+                    >
+                      Verify & Sign In
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Secure Google policies footer */}
+              <div className="mt-8 border-t border-[#2f2f2f] pt-4 text-[10px] text-[#5f5f5f] leading-normal text-left">
+                To continue, Google will share your name, email address, language preference, and profile picture with MedVis AI. Verify details before proceeding.
+                <div className="flex gap-3 mt-2 text-[#8e8e8e] hover:text-cyan-400">
+                  <a href="#" className="hover:underline">Privacy Policy</a>
+                  <a href="#" className="hover:underline">Terms of Service</a>
+                </div>
+              </div>
+            </>
+          )}
+
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="w-full text-foreground relative">
       <BackgroundPaths />
@@ -820,12 +1037,34 @@ export default function Page() {
                   How it works
                 </a>
               </div>
-              <button 
-                onClick={() => setShowDashboard(true)}
-                className="px-6 py-2 text-sm font-medium bg-foreground text-background rounded hover:opacity-90 transition-opacity"
-              >
-                Get Started
-              </button>
+              
+              {user ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-[#171717]/60 backdrop-blur-sm shadow-sm">
+                    {user.avatar ? (
+                      <img src={user.avatar} alt={user.name} className="w-5 h-5 rounded-full object-cover border border-[#2f2f2f]" />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-cyan-600 flex items-center justify-center font-bold text-white text-[10px]">
+                        {user.name.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="text-xs font-semibold text-foreground max-w-[120px] truncate">{user.name}</span>
+                  </div>
+                  <button 
+                    onClick={() => handleLaunchClick('chat')}
+                    className="px-5 py-2 text-xs font-bold bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white border border-[#2f2f2f] rounded-lg transition-all active:scale-95 shadow"
+                  >
+                    Dashboard
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => handleLaunchClick('chat')}
+                  className="px-6 py-2 text-sm font-medium bg-foreground text-background rounded hover:opacity-90 transition-opacity"
+                >
+                  Get Started
+                </button>
+              )}
             </div>
           </nav>
 
@@ -841,18 +1080,15 @@ export default function Page() {
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                 <button 
-                  onClick={() => setShowDashboard(true)}
-                  className="px-8 py-4 bg-foreground text-background font-semibold rounded hover:opacity-90 transition-opacity flex items-center gap-2"
+                  onClick={() => handleLaunchClick('chat')}
+                  className="px-8 py-4 bg-foreground text-background font-semibold rounded hover:opacity-90 transition-opacity flex items-center gap-2 shadow-lg"
                 >
                   Launch MedVis AI
                   <ArrowRight className="w-4 h-4" />
                 </button>
                 <button 
-                  onClick={() => {
-                    setShowDashboard(true);
-                    setActiveTab('3d');
-                  }}
-                  className="px-8 py-4 border border-border text-foreground font-semibold rounded hover:bg-card transition-colors"
+                  onClick={() => handleLaunchClick('3d')}
+                  className="px-8 py-4 border border-border text-foreground font-semibold rounded hover:bg-card transition-colors shadow-sm"
                 >
                   Explore 3D Models
                 </button>
@@ -1112,7 +1348,7 @@ export default function Page() {
                       Take complete control of your clinical educational path. Launch the 3D medical simulator and experience natural interactive learning.
                     </p>
                     <button 
-                      onClick={() => setShowDashboard(true)}
+                      onClick={() => handleLaunchClick('chat')}
                       className="px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold rounded-xl shadow-lg shadow-cyan-950/40 hover:shadow-cyan-400/20 hover:scale-[1.02] active:scale-[0.98] transition-all inline-flex items-center gap-2"
                     >
                       Launch Simulator
@@ -1137,7 +1373,7 @@ export default function Page() {
                 <div className="flex gap-8 text-sm text-muted-foreground">
                   <a href="#features" className="hover:text-foreground transition-colors">Features</a>
                   <a href="#how" className="hover:text-foreground transition-colors">How it works</a>
-                  <button onClick={() => setShowDashboard(true)} className="hover:text-foreground transition-colors">Launch Lab</button>
+                  <button onClick={() => handleLaunchClick('chat')} className="hover:text-foreground transition-colors">Launch Lab</button>
                 </div>
               </div>
               <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
@@ -1313,14 +1549,40 @@ export default function Page() {
 
             {/* Sidebar Bottom Profile */}
             <div className="flex flex-col gap-2 pt-4 border-t border-[#2f2f2f]">
-              <div className="flex items-center gap-3 p-2 rounded-lg text-sm">
-                <div className="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center font-bold text-white text-sm">
-                  MD
+              <div className="flex items-center justify-between gap-2 p-2 rounded-lg text-sm bg-[#212121]/30 border border-[#2f2f2f]/40">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  {user?.avatar ? (
+                    <img 
+                      src={user.avatar} 
+                      alt={user.name} 
+                      className="w-8 h-8 rounded-full border border-cyan-800/40 object-cover" 
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center font-bold text-white text-sm">
+                      {user ? user.name.slice(0, 2).toUpperCase() : 'MD'}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate text-white leading-snug">{user ? user.name : 'Medical Student'}</p>
+                    <p className="text-xs text-[#8e8e8e] truncate leading-none mt-0.5">{user ? user.email : 'Clinical Lab Track'}</p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate text-white">Medical Student</p>
-                  <p className="text-xs text-[#b4b4b4] truncate">Clinical Lab Track</p>
-                </div>
+                {user && (
+                  <button 
+                    onClick={() => {
+                      localStorage.removeItem('medvis_user');
+                      setUser(null);
+                      setShowDashboard(false);
+                    }}
+                    title="Sign Out"
+                    className="p-1.5 hover:bg-[#2f2f2f] rounded text-[#8e8e8e] hover:text-red-500 transition-colors flex-shrink-0"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1829,6 +2091,21 @@ export default function Page() {
 
         </div>
       )}
+
+      {/* Google SSO Login Modal */}
+      {showAuthModal && (
+        <AuthModal />
+      )}
     </div>
   );
 }
+
+// Google Brand SSO Icon Helper Component
+const GoogleIcon = () => (
+  <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
+    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
+  </svg>
+);

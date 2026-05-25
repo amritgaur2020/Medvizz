@@ -20,3 +20,4 @@ medvis.db
 medvis.db-wal
 medvis.db-shm
 scratch/
+.gemini/

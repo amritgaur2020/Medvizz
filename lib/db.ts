@@ -1,6 +1,11 @@
-import path from 'path';
-
-let db: any = null;
+/**
+ * lib/db.ts
+ *
+ * This file is kept for backwards compatibility with dynamic imports across existing routes.
+ * We have migrated all 3D model storage and query metadata directly to Cloudflare R2 (100% serverless).
+ * All chat history and session persistence are seamlessly synchronized in the client's `localStorage`
+ * for an offline-first, highly reliable, and zero-maintenance architecture.
+ */
 
 export interface DbSession {
   id: string;
@@ -30,90 +35,25 @@ export interface DbGeneratedModel {
   created_at: string;
 }
 
-// In-memory fallbacks for serverless environments (Vercel)
+// Simple in-memory fallbacks for routes that dynamically load these helpers on startup
 let inMemorySessions: DbSession[] = [];
 let inMemoryMessages: DbMessage[] = [];
-let inMemoryModels: DbGeneratedModel[] = [];
 
-try {
-  const Database = require('better-sqlite3');
-  const dbPath = path.resolve(process.cwd(), 'medvis.db');
-  db = new Database(dbPath);
-
-  // Enable WAL mode for high performance and concurrent read/writes
-  db.pragma('journal_mode = WAL');
-
-  // Initialize schema on startup
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      model_type TEXT DEFAULT 'general',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      sender TEXT NOT NULL, -- 'user' or 'ai'
-      text TEXT NOT NULL,
-      suggest_model TEXT, -- 'heart' | 'brain' | 'lungs' | 'kidneys'
-      suggest_label TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS generated_models (
-      id TEXT PRIMARY KEY,
-      topic TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      model_url TEXT NOT NULL,
-      image_url TEXT,
-      title TEXT,
-      user_id TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  // Schema migration: Add image_url, title, and user_id columns if they don't exist
-  try {
-    db.exec(`ALTER TABLE generated_models ADD COLUMN image_url TEXT;`);
-  } catch (_) {}
-  try {
-    db.exec(`ALTER TABLE generated_models ADD COLUMN title TEXT;`);
-  } catch (_) {}
-  try {
-    db.exec(`ALTER TABLE generated_models ADD COLUMN user_id TEXT;`);
-  } catch (_) {}
-
-  console.log('[SQLite] Connected and schema initialized successfully.');
-} catch (err) {
-  console.warn('[SQLite] Warning: better-sqlite3 not loaded. Running in in-memory serverless mode.', err);
-}
+console.log('[Database] Migrated from local SQLite file storage to serverless Cloudflare R2 + client-side LocalStorage.');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SESSIONS HELPERS
+// SESSIONS HELPERS (In-Memory fallback; Client handles full LocalStorage sync)
 // ─────────────────────────────────────────────────────────────────────────────
 export const getSessions = (): DbSession[] => {
-  if (!db) {
-    if (inMemorySessions.length === 0) {
-      // Seed a default session if empty
-      inMemorySessions.push({
-        id: 'session_default',
-        title: 'MedVis AI Clinical Sandbox',
-        model_type: 'general',
-        created_at: new Date().toISOString()
-      });
-    }
-    return inMemorySessions;
+  if (inMemorySessions.length === 0) {
+    inMemorySessions.push({
+      id: 'session_default',
+      title: 'MedVis AI Clinical Sandbox',
+      model_type: 'general',
+      created_at: new Date().toISOString()
+    });
   }
-  try {
-    const stmt = db.prepare('SELECT * FROM sessions ORDER BY created_at DESC');
-    return stmt.all() as DbSession[];
-  } catch (err) {
-    console.error('Error in getSessions:', err);
-    return inMemorySessions;
-  }
+  return inMemorySessions;
 };
 
 export const createSession = (id: string, title: string, modelType: string = 'general'): DbSession => {
@@ -123,78 +63,36 @@ export const createSession = (id: string, title: string, modelType: string = 'ge
     model_type: modelType,
     created_at: new Date().toISOString()
   };
-  if (!db) {
-    inMemorySessions = [newSession, ...inMemorySessions];
-    return newSession;
-  }
-  try {
-    const stmt = db.prepare('INSERT INTO sessions (id, title, model_type) VALUES (?, ?, ?)');
-    stmt.run(id, title, modelType);
-    return newSession;
-  } catch (err) {
-    console.error('Error in createSession:', err);
-    inMemorySessions = [newSession, ...inMemorySessions];
-    return newSession;
-  }
+  inMemorySessions = [newSession, ...inMemorySessions];
+  return newSession;
 };
 
 export const deleteSession = (id: string): void => {
-  if (!db) {
-    inMemorySessions = inMemorySessions.filter(s => s.id !== id);
-    inMemoryMessages = inMemoryMessages.filter(m => m.session_id !== id);
-    return;
-  }
-  try {
-    const stmt = db.prepare('DELETE FROM sessions WHERE id = ?');
-    stmt.run(id);
-  } catch (err) {
-    console.error('Error in deleteSession:', err);
-    inMemorySessions = inMemorySessions.filter(s => s.id !== id);
-    inMemoryMessages = inMemoryMessages.filter(m => m.session_id !== id);
-  }
+  inMemorySessions = inMemorySessions.filter(s => s.id !== id);
+  inMemoryMessages = inMemoryMessages.filter(m => m.session_id !== id);
 };
 
 export const updateSessionTitle = (id: string, title: string): void => {
-  if (!db) {
-    inMemorySessions = inMemorySessions.map(s => s.id === id ? { ...s, title } : s);
-    return;
-  }
-  try {
-    const stmt = db.prepare('UPDATE sessions SET title = ? WHERE id = ?');
-    stmt.run(title, id);
-  } catch (err) {
-    console.error('Error in updateSessionTitle:', err);
-    inMemorySessions = inMemorySessions.map(s => s.id === id ? { ...s, title } : s);
-  }
+  inMemorySessions = inMemorySessions.map(s => s.id === id ? { ...s, title } : s);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MESSAGES HELPERS
+// MESSAGES HELPERS (In-Memory fallback; Client handles full LocalStorage sync)
 // ─────────────────────────────────────────────────────────────────────────────
 export const getMessagesBySession = (sessionId: string): DbMessage[] => {
-  if (!db) {
-    const filtered = inMemoryMessages.filter(m => m.session_id === sessionId);
-    if (filtered.length === 0) {
-      // Seed default welcome message
-      return [{
-        id: 'msg_welcome_' + sessionId,
-        session_id: sessionId,
-        sender: 'ai',
-        text: "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.",
-        suggest_model: null,
-        suggest_label: null,
-        created_at: new Date().toISOString()
-      }];
-    }
-    return filtered;
+  const filtered = inMemoryMessages.filter(m => m.session_id === sessionId);
+  if (filtered.length === 0) {
+    return [{
+      id: 'msg_welcome_' + sessionId,
+      session_id: sessionId,
+      sender: 'ai',
+      text: "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.",
+      suggest_model: null,
+      suggest_label: null,
+      created_at: new Date().toISOString()
+    }];
   }
-  try {
-    const stmt = db.prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC');
-    return stmt.all(sessionId) as DbMessage[];
-  } catch (err) {
-    console.error('Error in getMessagesBySession:', err);
-    return inMemoryMessages.filter(m => m.session_id === sessionId);
-  }
+  return filtered;
 };
 
 export const addMessage = (
@@ -214,38 +112,16 @@ export const addMessage = (
     suggest_label: suggestLabel,
     created_at: new Date().toISOString()
   };
-  if (!db) {
-    inMemoryMessages.push(newMsg);
-    return newMsg;
-  }
-  try {
-    const stmt = db.prepare(`
-      INSERT INTO messages (id, session_id, sender, text, suggest_model, suggest_label) 
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(id, sessionId, sender, text, suggestModel, suggestLabel);
-    return newMsg;
-  } catch (err) {
-    console.error('Error in addMessage:', err);
-    inMemoryMessages.push(newMsg);
-    return newMsg;
-  }
+  inMemoryMessages.push(newMsg);
+  return newMsg;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GENERATED MODELS HELPERS
+// GENERATED MODELS HELPERS (Deprecated — routes now use direct R2 metadata)
 // ─────────────────────────────────────────────────────────────────────────────
 export const getGeneratedModels = (): DbGeneratedModel[] => {
-  if (!db) {
-    return inMemoryModels;
-  }
-  try {
-    const stmt = db.prepare('SELECT * FROM generated_models ORDER BY created_at DESC');
-    return stmt.all() as DbGeneratedModel[];
-  } catch (err) {
-    console.error('Error in getGeneratedModels:', err);
-    return inMemoryModels;
-  }
+  console.warn('[Database] getGeneratedModels is deprecated. Please fetch from `/api/models` (R2).');
+  return [];
 };
 
 export const createGeneratedModel = (
@@ -257,7 +133,8 @@ export const createGeneratedModel = (
   title: string | null = null,
   userId: string | null = null
 ): DbGeneratedModel => {
-  const newModel: DbGeneratedModel = {
+  console.warn('[Database] createGeneratedModel is deprecated. Please write directly to R2.');
+  return {
     id,
     topic,
     prompt,
@@ -267,33 +144,10 @@ export const createGeneratedModel = (
     user_id: userId,
     created_at: new Date().toISOString()
   };
-  if (!db) {
-    inMemoryModels = [newModel, ...inMemoryModels];
-    return newModel;
-  }
-  try {
-    const stmt = db.prepare('INSERT INTO generated_models (id, topic, prompt, model_url, image_url, title, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    stmt.run(id, topic, prompt, modelUrl, imageUrl, title, userId);
-    return newModel;
-  } catch (err) {
-    console.error('Error in createGeneratedModel:', err);
-    inMemoryModels = [newModel, ...inMemoryModels];
-    return newModel;
-  }
 };
 
 export const deleteGeneratedModel = (id: string): void => {
-  if (!db) {
-    inMemoryModels = inMemoryModels.filter(m => m.id !== id);
-    return;
-  }
-  try {
-    const stmt = db.prepare('DELETE FROM generated_models WHERE id = ?');
-    stmt.run(id);
-  } catch (err) {
-    console.error('Error in deleteGeneratedModel:', err);
-    inMemoryModels = inMemoryModels.filter(m => m.id !== id);
-  }
+  console.warn('[Database] deleteGeneratedModel is deprecated. Please delete directly from R2.');
 };
 
-export default db;
+export default null;
