@@ -63,6 +63,7 @@ export default function Page() {
   const [activeStructure, setActiveStructure] = useState<string>('Left Ventricle');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(true);
   const [showHUD, setShowHUD] = useState(true);
   
   // Google Auth & SSO session states
@@ -2001,6 +2002,15 @@ export default function Page() {
                         </button>
 
                         <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {/* Toggle Rotation Button */}
+                          <button
+                            onClick={() => setAutoRotate(!autoRotate)}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all shadow-xl backdrop-blur-sm ${autoRotate ? 'bg-cyan-950 border-cyan-800 text-cyan-400' : 'bg-[#171717]/90 border-[#2f2f2f] text-[#b4b4b4] hover:text-white'}`}
+                          >
+                            <span className="w-3.5 h-3.5 flex items-center justify-center">↻</span>
+                            <span>Rotate: {autoRotate ? 'ON' : 'OFF'}</span>
+                          </button>
+                          
                           {/* Toggle Labels ON/OFF Button */}
                           <button
                             onClick={() => setShowLabels(!showLabels)}
@@ -2025,6 +2035,7 @@ export default function Page() {
                           neural4dImageUrl={neural4dImageUrl}
                           pollProgress={pollProgress}
                           dynamicLabels={dynamicLabels}
+                          autoRotate={autoRotate}
                         />
                       </div>
 

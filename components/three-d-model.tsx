@@ -16,6 +16,7 @@ interface ThreeDModelProps {
   neural4dImageUrl?: string | null;
   pollProgress?: number;
   dynamicLabels?: any;
+  autoRotate?: boolean;
 }
 
 // 3D coordinates on each modular anatomy model
@@ -86,11 +87,12 @@ export function ThreeDModel({
   neural4dModelUrl = null,
   neural4dImageUrl = null,
   pollProgress = 0,
-  dynamicLabels = null
+  dynamicLabels = null,
+  autoRotate = true
 }: ThreeDModelProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const modelSizeRef = useRef<THREE.Vector3 | null>(null);
-  const [nodePositions, setNodePositions] = React.useState<Array<{ name: string; x: number; y: number; dx: number; dy: number }>>([]);
+  const [nodePositions, setNodePositions] = React.useState<Array<{ name: string; x: number; y: number; fixedX: number; fixedY: number }>>([]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -393,7 +395,7 @@ export function ThreeDModel({
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
       const elapsedTime = clock.getElapsedTime();
-      if (!isDragging) group.rotation.y += 0.0065;
+      if (!isDragging && autoRotate) group.rotation.y += 0.0065;
       if (pulse && mainMesh) {
         let pulseScale = 1.0;
         if (type === "heart") pulseScale = 1.0 + Math.sin((elapsedTime * 1.5) % Math.PI * 2) * 0.08 * Math.pow(Math.sin((elapsedTime * 1.5) % Math.PI), 2);
@@ -437,7 +439,7 @@ export function ThreeDModel({
         }
       }
       
-      const positionsArray: Array<{ name: string; x: number; y: number; dx: number; dy: number }> = [];
+      const positionsArray: Array<{ name: string; x: number; y: number; fixedX: number; fixedY: number }> = [];
       Object.entries(activePositions).forEach(([name, localPos]: [string, any]) => {
         const tempV = new THREE.Vector3().copy(localPos).applyMatrix4(group.matrixWorld).project(camera);
         const x = (tempV.x * 0.5 + 0.5) * mount.clientWidth;
@@ -449,7 +451,13 @@ export function ThreeDModel({
           offset = dynamicLabels.offsets[name];
         }
         
-        positionsArray.push({ name, x, y, dx: (offset.dx / 100) * mount.clientWidth, dy: (offset.dy / 100) * mount.clientHeight });
+        // Calculate static screen position for the text box based on container center
+        const centerX = mount.clientWidth / 2;
+        const centerY = mount.clientHeight / 2;
+        const fixedX = centerX + (offset.dx / 100) * mount.clientWidth;
+        const fixedY = centerY + (offset.dy / 100) * mount.clientHeight;
+        
+        positionsArray.push({ name, x, y, fixedX, fixedY });
       });
       setNodePositions(positionsArray);
     };
@@ -606,9 +614,9 @@ export function ThreeDModel({
           <svg className="w-full h-full absolute inset-0 pointer-events-none">
             {nodePositions.map((pos) => {
               const active = pos.name === activeStructure;
-              const x2 = pos.x + pos.dx;
-              const y2 = pos.y + pos.dy;
-              const xMid = pos.x + pos.dx * 0.45;
+              const x2 = pos.fixedX;
+              const y2 = pos.fixedY;
+              const xMid = pos.x + (x2 - pos.x) * 0.45;
               return (
                 <g key={pos.name} className="transition-all duration-300">
                   {/* Dotted HUD pointer line with Sci-Fi elbow */}
@@ -650,8 +658,8 @@ export function ThreeDModel({
           {/* Interactive Floating HTML Label tags */}
           {nodePositions.map((pos) => {
             const active = pos.name === activeStructure;
-            const x2 = pos.x + pos.dx;
-            const y2 = pos.y + pos.dy;
+            const x2 = pos.fixedX;
+            const y2 = pos.fixedY;
 
             return (
               <button
@@ -663,7 +671,7 @@ export function ThreeDModel({
                 style={{
                   left: `${x2}px`,
                   top: `${y2}px`,
-                  transform: `translate(${pos.dx > 0 ? "0%" : "-100%"}, -50%)`,
+                  transform: `translate(${x2 > pos.x ? "0%" : "-100%"}, -50%)`,
                 }}
                 className={`absolute pointer-events-auto flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all duration-300 shadow-lg ${
                   active
