@@ -879,8 +879,6 @@ export default function Page() {
 
   const anatomicalData = getAnatomicalDetails();
 
-    );
-  };
 
   return (
     <div className="w-full text-foreground relative">
@@ -910,7 +908,7 @@ export default function Page() {
               {isSignedIn ? (
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2 px-1 py-1 pr-3 rounded-full border border-border bg-[#171717]/60 backdrop-blur-sm shadow-sm">
-                    <UserButton appearance={{ elements: { userButtonAvatarBox: "w-7 h-7" } }} />
+                    <UserButton afterSignOutUrl="/" appearance={{ elements: { userButtonAvatarBox: "w-7 h-7" } }} />
                     <span className="text-xs font-semibold text-foreground max-w-[120px] truncate">{user?.firstName}</span>
                   </div>
                   <button 
@@ -1412,7 +1410,7 @@ export default function Page() {
 
               <div className="p-3 border-t border-[#2f2f2f] bg-[#0d0d0d] flex flex-col justify-center">
                 <div className="flex items-center gap-3">
-                  <UserButton appearance={{ elements: { userButtonAvatarBox: "w-8 h-8" } }} />
+                  <UserButton afterSignOutUrl="/" appearance={{ elements: { userButtonAvatarBox: "w-8 h-8" } }} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate text-white leading-snug">{isSignedIn ? user?.fullName : 'Medical Student'}</p>
                     <p className="text-xs text-[#8e8e8e] truncate leading-none mt-0.5">{isSignedIn ? user?.primaryEmailAddress?.emailAddress : 'Clinical Lab Track'}</p>
