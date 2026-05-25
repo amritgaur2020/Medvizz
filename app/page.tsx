@@ -73,6 +73,13 @@ export default function Page() {
   const { isSignedIn, user, isLoaded } = useUser();
   const { openSignIn } = useClerk();
 
+  // Force exit dashboard if user signs out
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      setShowDashboard(false);
+    }
+  }, [isSignedIn, isLoaded]);
+
   const handleLaunchClick = (activeTabAfterLogin: 'chat' | '3d' = 'chat') => {
     if (isSignedIn) {
       setActiveTab(activeTabAfterLogin);
