@@ -27,6 +27,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useUser, useClerk, UserButton } from '@clerk/nextjs';
 import { BackgroundPaths } from '@/components/background-paths';
 import dynamic from 'next/dynamic';
 
@@ -68,32 +69,16 @@ export default function Page() {
   const [isGeneratingLabels, setIsGeneratingLabels] = useState(false);
   const [showHUD, setShowHUD] = useState(true);
   
-  // Google Auth & SSO session states
-  const [user, setUser] = useState<{ name: string; email: string; avatar: string } | null>(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [customName, setCustomName] = useState('');
-  const [customEmail, setCustomEmail] = useState('');
-  const [showCustomInput, setShowCustomInput] = useState(false);
+  // Clerk Authentication State
+  const { isSignedIn, user, isLoaded } = useUser();
+  const { openSignIn } = useClerk();
 
   const handleLaunchClick = (activeTabAfterLogin: 'chat' | '3d' = 'chat') => {
-    // Attempt to pull user session from state or localStorage
-    let currentSessionUser = user;
-    if (!currentSessionUser) {
-      try {
-        const stored = localStorage.getItem('medvis_user');
-        if (stored) {
-          currentSessionUser = JSON.parse(stored);
-          setUser(currentSessionUser);
-        }
-      } catch (_) {}
-    }
-
-    if (currentSessionUser) {
+    if (isSignedIn) {
       setActiveTab(activeTabAfterLogin);
       setShowDashboard(true);
     } else {
-      setShowAuthModal(true);
+      openSignIn({ fallbackRedirectUrl: '/' });
     }
   };
   
@@ -894,183 +879,6 @@ export default function Page() {
 
   const anatomicalData = getAnatomicalDetails();
 
-  // ── Premium Google SSO Auth Modal ──
-  const AuthModal = () => {
-    const handleGoogleSignInMock = async (name: string, email: string, avatar: string) => {
-      setIsAuthLoading(true);
-      // Simulate premium Google SSO consent redirection wait
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      const newUser = { name, email, avatar };
-      localStorage.setItem('medvis_user', JSON.stringify(newUser));
-      setUser(newUser);
-      setIsAuthLoading(false);
-      setShowAuthModal(false);
-      setShowDashboard(true);
-    };
-
-    const handleCustomSubmit = (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!customName.trim() || !customEmail.trim()) return;
-      const mockAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(customName)}&backgroundColor=06b6d4&textColor=ffffff`;
-      handleGoogleSignInMock(customName.trim(), customEmail.trim(), mockAvatar);
-    };
-
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-md transition-all duration-300">
-        <div className="relative w-full max-w-[420px] bg-[#1a1a1a]/95 border border-[#2f2f2f]/80 rounded-[28px] p-8 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] flex flex-col text-left overflow-hidden">
-          
-          {/* Top glowing strip */}
-          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-500 via-yellow-500 via-blue-500 to-green-500" />
-
-          {/* Close button */}
-          <button 
-            onClick={() => {
-              if (!isAuthLoading) {
-                setShowAuthModal(false);
-                setShowCustomInput(false);
-              }
-            }}
-            disabled={isAuthLoading}
-            className="absolute top-4 right-4 p-2 rounded-full hover:bg-white/5 text-[#8e8e8e] hover:text-white transition-colors"
-          >
-            <Plus className="w-5 h-5 rotate-45" />
-          </button>
-
-          {/* Loading state overlay */}
-          {isAuthLoading ? (
-            <div className="flex flex-col items-center justify-center py-16 space-y-5">
-              <div className="relative w-14 h-14">
-                <div className="absolute inset-0 border-4 border-cyan-500/10 rounded-full" />
-                <div className="absolute inset-0 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-              </div>
-              <div className="space-y-1.5 text-center">
-                <h4 className="font-bold text-white text-md">Connecting Google Account</h4>
-                <p className="text-xs text-[#8e8e8e]">Authorizing secure MedVis AI session via Google SSO...</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Header logo / branding */}
-              <div className="flex items-center gap-2 mb-6">
-                <GoogleIcon />
-                <span className="text-xs font-bold text-[#8e8e8e] tracking-widest uppercase">Google Accounts</span>
-              </div>
-
-              <div className="space-y-2 mb-8">
-                <h3 className="text-2xl font-extrabold text-white tracking-tight">Sign in with Google</h3>
-                <p className="text-xs text-[#8e8e8e]">to continue to <span className="text-cyan-400 font-semibold">MedVis AI Clinical Lab</span></p>
-              </div>
-
-              {!showCustomInput ? (
-                <div className="space-y-3.5">
-                  {/* Account selections */}
-                  <button
-                    onClick={() => handleGoogleSignInMock(
-                      'Amrit Gaur', 
-                      'amritgaur2020@gmail.com', 
-                      'https://api.dicebear.com/7.x/avataaars/svg?seed=Amrit'
-                    )}
-                    className="w-full flex items-center gap-3.5 p-3 rounded-2xl border border-[#2f2f2f] hover:border-[#3f3f3f] bg-[#212121]/30 hover:bg-[#212121]/70 transition-all text-left group"
-                  >
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center font-bold text-white text-sm">
-                      AG
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white group-hover:text-cyan-400 transition-colors">Amrit Gaur</p>
-                      <p className="text-xs text-[#8e8e8e] truncate">amritgaur2020@gmail.com</p>
-                    </div>
-                    <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider bg-cyan-950/80 border border-cyan-800/40 px-2 py-0.5 rounded-md">Default</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleGoogleSignInMock(
-                      'Dr. Sarah Jenkins', 
-                      'sjenkins@medvis.ai', 
-                      'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah'
-                    )}
-                    className="w-full flex items-center gap-3.5 p-3 rounded-2xl border border-[#2f2f2f] hover:border-[#3f3f3f] bg-[#212121]/30 hover:bg-[#212121]/70 transition-all text-left group"
-                  >
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-600 to-cyan-500 flex items-center justify-center font-bold text-white text-sm">
-                      SJ
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white group-hover:text-cyan-400 transition-colors">Dr. Sarah Jenkins</p>
-                      <p className="text-xs text-[#8e8e8e] truncate">sjenkins@medvis.ai</p>
-                    </div>
-                    <span className="text-[10px] text-[#8e8e8e] font-medium uppercase tracking-wider bg-[#212121] border border-[#2f2f2f] px-2 py-0.5 rounded-md">Guest</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowCustomInput(true)}
-                    className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl border border-[#2f2f2f] hover:border-cyan-800 bg-[#212121]/20 hover:bg-[#171717] transition-all text-left group"
-                  >
-                    <div className="w-9 h-9 rounded-full bg-[#2f2f2f] flex items-center justify-center text-white">
-                      <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-white group-hover:text-cyan-400 transition-colors">Use another account</p>
-                      <p className="text-xs text-[#8e8e8e]">Sign in with custom Google profile</p>
-                    </div>
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleCustomSubmit} className="space-y-4">
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-[10px] uppercase font-bold text-[#8e8e8e] tracking-wider mb-1.5">Full Name</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={customName}
-                        onChange={(e) => setCustomName(e.target.value)}
-                        placeholder="e.g. John Doe"
-                        className="w-full px-4 py-3 bg-[#212121] border border-[#2f2f2f] text-white text-sm rounded-xl focus:outline-none focus:border-cyan-700 transition-colors placeholder-[#5f5f5f]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase font-bold text-[#8e8e8e] tracking-wider mb-1.5">Google Email Address</label>
-                      <input 
-                        type="email" 
-                        required
-                        value={customEmail}
-                        onChange={(e) => setCustomEmail(e.target.value)}
-                        placeholder="e.g. johndoe@gmail.com"
-                        className="w-full px-4 py-3 bg-[#212121] border border-[#2f2f2f] text-white text-sm rounded-xl focus:outline-none focus:border-cyan-700 transition-colors placeholder-[#5f5f5f]"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 pt-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowCustomInput(false)}
-                      className="px-4 py-3 border border-[#2f2f2f] hover:border-[#3f3f3f] text-[#8e8e8e] hover:text-white rounded-xl text-xs font-semibold tracking-wide transition-all"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex-1 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold rounded-xl text-xs tracking-wider uppercase transition-all shadow-md"
-                    >
-                      Verify & Sign In
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Secure Google policies footer */}
-              <div className="mt-8 border-t border-[#2f2f2f] pt-4 text-[10px] text-[#5f5f5f] leading-normal text-left">
-                To continue, Google will share your name, email address, language preference, and profile picture with MedVis AI. Verify details before proceeding.
-                <div className="flex gap-3 mt-2 text-[#8e8e8e] hover:text-cyan-400">
-                  <a href="#" className="hover:underline">Privacy Policy</a>
-                  <a href="#" className="hover:underline">Terms of Service</a>
-                </div>
-              </div>
-            </>
-          )}
-
-        </div>
-      </div>
     );
   };
 
@@ -1099,17 +907,11 @@ export default function Page() {
                 </a>
               </div>
               
-              {user ? (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-[#171717]/60 backdrop-blur-sm shadow-sm">
-                    {user.avatar ? (
-                      <img src={user.avatar} alt={user.name} className="w-5 h-5 rounded-full object-cover border border-[#2f2f2f]" />
-                    ) : (
-                      <div className="w-5 h-5 rounded-full bg-cyan-600 flex items-center justify-center font-bold text-white text-[10px]">
-                        {user.name.slice(0, 2).toUpperCase()}
-                      </div>
-                    )}
-                    <span className="text-xs font-semibold text-foreground max-w-[120px] truncate">{user.name}</span>
+              {isSignedIn ? (
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 px-1 py-1 pr-3 rounded-full border border-border bg-[#171717]/60 backdrop-blur-sm shadow-sm">
+                    <UserButton appearance={{ elements: { userButtonAvatarBox: "w-7 h-7" } }} />
+                    <span className="text-xs font-semibold text-foreground max-w-[120px] truncate">{user?.firstName}</span>
                   </div>
                   <button 
                     onClick={() => handleLaunchClick('chat')}
@@ -1608,44 +1410,15 @@ export default function Page() {
 
             </div>
 
-            {/* Sidebar Bottom Profile */}
-            <div className="flex flex-col gap-2 pt-4 border-t border-[#2f2f2f]">
-              <div className="flex items-center justify-between gap-2 p-2 rounded-lg text-sm bg-[#212121]/30 border border-[#2f2f2f]/40">
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  {user?.avatar ? (
-                    <img 
-                      src={user.avatar} 
-                      alt={user.name} 
-                      className="w-8 h-8 rounded-full border border-cyan-800/40 object-cover" 
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center font-bold text-white text-sm">
-                      {user ? user.name.slice(0, 2).toUpperCase() : 'MD'}
-                    </div>
-                  )}
+              <div className="p-3 border-t border-[#2f2f2f] bg-[#0d0d0d] flex flex-col justify-center">
+                <div className="flex items-center gap-3">
+                  <UserButton appearance={{ elements: { userButtonAvatarBox: "w-8 h-8" } }} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate text-white leading-snug">{user ? user.name : 'Medical Student'}</p>
-                    <p className="text-xs text-[#8e8e8e] truncate leading-none mt-0.5">{user ? user.email : 'Clinical Lab Track'}</p>
+                    <p className="text-sm font-semibold truncate text-white leading-snug">{isSignedIn ? user?.fullName : 'Medical Student'}</p>
+                    <p className="text-xs text-[#8e8e8e] truncate leading-none mt-0.5">{isSignedIn ? user?.primaryEmailAddress?.emailAddress : 'Clinical Lab Track'}</p>
                   </div>
                 </div>
-                {user && (
-                  <button 
-                    onClick={() => {
-                      localStorage.removeItem('medvis_user');
-                      setUser(null);
-                      setShowDashboard(false);
-                    }}
-                    title="Sign Out"
-                    className="p-1.5 hover:bg-[#2f2f2f] rounded text-[#8e8e8e] hover:text-red-500 transition-colors flex-shrink-0"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                )}
               </div>
-            </div>
 
           </div>
 
@@ -2191,10 +1964,7 @@ export default function Page() {
         </div>
       )}
 
-      {/* Google SSO Login Modal */}
-      {showAuthModal && (
-        <AuthModal />
-      )}
+
     </div>
   );
 }
