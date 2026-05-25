@@ -182,15 +182,15 @@ async function generateAnatomicalLabels(topic: string, prompt: string, imageUrl:
   
   try {
     console.log('[Grok] Generating dynamic anatomical labels for:', topic);
-    const grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${xaiKey}` },
-      body: JSON.stringify({
-        model: 'grok-4.20-0309-reasoning',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a medical 3D visualizer assistant. Given an anatomical organ or structure, generate EXACTLY 12 specific, highly detailed, medically accurate anatomical labels for it.
+    let absoluteImageUrl = imageUrl;
+    if (absoluteImageUrl && absoluteImageUrl.startsWith('/')) {
+      absoluteImageUrl = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || 'medvizzz.vercel.app'}${absoluteImageUrl}`;
+    }
+
+    let messages = [
+      {
+        role: 'system',
+        content: `You are a medical 3D visualizer assistant. Given an anatomical organ or structure, generate EXACTLY 12 specific, highly detailed, medically accurate anatomical labels for it.
 For each label, provide a short 1-sentence description, approximate 3D spatial coordinates (x, y, z) to position the label on a 3D model, and 2D screen offsets (dx, dy).
 - 3D coordinates (x, y, z) should be floats between -1.5 and 1.5.
 - 2D offsets (dx, dy) should be integers between -35 and 35, distributed in a circle around the organ so labels don't overlap.
@@ -210,17 +210,42 @@ Output EXACTLY a valid JSON object matching this schema, with no markdown, no qu
     "Label 2": { "dx": -25, "dy": 15 }
   }
 }`
-          },
-          { 
-            role: 'user', 
-            content: imageUrl ? [
-              { type: 'text', text: `Topic: ${topic}\nPrompt used to generate model: ${prompt}\n\nVisually analyze this specific 3D render snapshot and map the exact coordinates to the visual structures you see in this specific image.` },
-              { type: 'image_url', image_url: { url: imageUrl } }
-            ] : `Topic: ${topic}\nPrompt used to generate model: ${prompt}`
-          }
-        ]
+      },
+      { 
+        role: 'user', 
+        content: absoluteImageUrl ? [
+          { type: 'text', text: `Topic: ${topic}\nPrompt used to generate model: ${prompt}\n\nVisually analyze this specific 3D render snapshot and map the exact coordinates to the visual structures you see in this specific image. If the topic name is generic, infer the actual organ purely from the image and the prompt.` },
+          { type: 'image_url', image_url: { url: absoluteImageUrl } }
+        ] : `Topic: ${topic}\nPrompt used to generate model: ${prompt}\n\nIf the topic name is generic, infer the actual organ purely from the prompt text.`
+      }
+    ];
+
+    let grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${xaiKey}` },
+      body: JSON.stringify({
+        model: 'grok-4.20-0309-reasoning',
+        messages
       })
     });
+    
+    if (!grokRes.ok) {
+      const errText = await grokRes.text();
+      console.warn('[Grok] Primary fetch failed in 3D gen:', errText);
+      
+      if (absoluteImageUrl && (errText.includes('image') || errText.includes('404') || errText.includes('400'))) {
+        console.log('[Grok] Retrying without Vision due to image fetch failure...');
+        messages[1].content = `Topic: ${topic}\nPrompt used to generate model: ${prompt}\n\nIf the topic name is generic, infer the actual organ purely from the prompt text.`;
+        grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${xaiKey}` },
+          body: JSON.stringify({
+            model: 'grok-4.20-0309-reasoning',
+            messages
+          })
+        });
+      }
+    }
     
     if (grokRes.ok) {
       const d = await grokRes.json();
