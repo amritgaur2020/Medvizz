@@ -62,7 +62,7 @@ export default function Page() {
   const [selectedModel, setSelectedModel] = useState<'heart' | 'brain' | 'lungs' | 'kidneys'>('heart');
   const [activeStructure, setActiveStructure] = useState<string>('Left Ventricle');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [showLabels, setShowLabels] = useState(true);
+  const [showLabels, setShowLabels] = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
   const [showHUD, setShowHUD] = useState(true);
   

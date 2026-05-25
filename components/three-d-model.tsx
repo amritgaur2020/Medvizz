@@ -92,6 +92,12 @@ export function ThreeDModel({
 }: ThreeDModelProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const modelSizeRef = useRef<THREE.Vector3 | null>(null);
+  const autoRotateRef = useRef(autoRotate);
+  const dynamicLabelsRef = useRef(dynamicLabels);
+  
+  useEffect(() => { autoRotateRef.current = autoRotate; }, [autoRotate]);
+  useEffect(() => { dynamicLabelsRef.current = dynamicLabels; }, [dynamicLabels]);
+
   const [nodePositions, setNodePositions] = React.useState<Array<{ name: string; x: number; y: number; fixedX: number; fixedY: number }>>([]);
 
   useEffect(() => {
@@ -395,7 +401,7 @@ export function ThreeDModel({
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
       const elapsedTime = clock.getElapsedTime();
-      if (!isDragging && autoRotate) group.rotation.y += 0.0065;
+      if (!isDragging && autoRotateRef.current) group.rotation.y += 0.0065;
       if (pulse && mainMesh) {
         let pulseScale = 1.0;
         if (type === "heart") pulseScale = 1.0 + Math.sin((elapsedTime * 1.5) % Math.PI * 2) * 0.08 * Math.pow(Math.sin((elapsedTime * 1.5) % Math.PI), 2);
@@ -410,13 +416,14 @@ export function ThreeDModel({
       let activePositions = nodePositionsMap[type] as Record<string, any>;
       
       if (neural4dModelUrl && neural4dModelUrl !== 'fallback') {
-        if (dynamicLabels && dynamicLabels.positions) {
+        const currentLabels = dynamicLabelsRef.current;
+        if (currentLabels && currentLabels.positions) {
           // Map dynamic Grok JSON labels securely onto the actual bounding box of the mesh
           activePositions = {};
           const mSize = modelSizeRef.current || new THREE.Vector3(2.5, 2.5, 2.5);
           
-          Object.keys(dynamicLabels.positions).forEach(key => {
-            const p = dynamicLabels.positions[key];
+          Object.keys(currentLabels.positions).forEach(key => {
+            const p = currentLabels.positions[key];
             // Normalize Grok's raw -1.5 to 1.5 range to a -1.0 to 1.0 percentage
             const normX = p.x / 1.5;
             const normY = p.y / 1.5;
@@ -430,12 +437,8 @@ export function ThreeDModel({
             );
           });
         } else {
-          activePositions = {
-            "External Organ Surface": new THREE.Vector3(-1.2, 0.8, 0.5),
-            "Veins & Blood Streams": new THREE.Vector3(1.0, -0.4, 0.4),
-            "Natural Organ Coloration": new THREE.Vector3(0.0, 1.2, -0.3),
-            "Internal Cavity & Cross-section": new THREE.Vector3(-0.4, -1.0, 0.2)
-          };
+          // Empty state: Don't show fake mockups when loading real models!
+          activePositions = {};
         }
       }
       
@@ -447,8 +450,9 @@ export function ThreeDModel({
         
         let offset = labelOffsets[name] || { dx: 15, dy: 10 };
         // Override with dynamic offsets if provided by Grok
-        if (dynamicLabels && dynamicLabels.offsets && dynamicLabels.offsets[name]) {
-          offset = dynamicLabels.offsets[name];
+        const currentLabels = dynamicLabelsRef.current;
+        if (currentLabels && currentLabels.offsets && currentLabels.offsets[name]) {
+          offset = currentLabels.offsets[name];
         }
         
         // Calculate static screen position for the text box based on container center
