@@ -1250,7 +1250,7 @@ export default function Page() {
               <div className="h-[1px] bg-[#2f2f2f] my-4" />
 
               {/* Active Conversations (SQLite) */}
-              <div className="flex flex-col gap-1 overflow-y-auto max-h-[35vh] pr-1">
+              <div className="flex flex-col gap-1 overflow-y-auto max-h-[40vh] pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#3f3f3f] [&::-webkit-scrollbar-thumb]:rounded-full">
                 <p className="text-[10px] font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5 text-[#6f6f6f]" />
                   Chat History (SQLite)
@@ -1283,7 +1283,7 @@ export default function Page() {
               <div className="h-[1px] bg-[#2f2f2f] my-3" />
 
               {/* Neural4D Generated Models Gallery (SQLite & LocalStorage) */}
-              <div className="flex flex-col gap-1 overflow-y-auto max-h-[25vh] pr-1">
+              <div className="flex flex-col gap-1 overflow-y-auto max-h-[30vh] pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#3f3f3f] [&::-webkit-scrollbar-thumb]:rounded-full">
                 <p className="text-[10px] font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                   <Compass className="w-3.5 h-3.5 text-[#6f6f6f]" />
                   Neural4D 3D Models ({generatedModels.length})
@@ -1450,13 +1450,22 @@ export default function Page() {
 
                       {/* Chat Input placed above suggestions, exactly like ChatGPT */}
                       <div className="w-full max-w-xl relative mb-6">
-                        <input 
-                          type="text"
+                        <textarea 
                           value={inputText}
-                          onChange={(e) => setInputText(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                          onChange={(e) => {
+                            setInputText(e.target.value);
+                            e.target.style.height = 'auto';
+                            e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendMessage();
+                            }
+                          }}
+                          rows={1}
                           placeholder="Ask about cardiovascular, nervous, or pulmonary systems..."
-                          className="w-full pl-5 pr-14 py-3.5 bg-[#2f2f2f]/85 hover:bg-[#343434]/95 focus:bg-[#343434] border border-[#3f3f3f] focus:border-cyan-700/60 text-[#ececec] placeholder-[#6f6f6f] text-sm rounded-xl focus:outline-none transition-all shadow-2xl backdrop-blur-md"
+                          className="w-full pl-5 pr-14 py-3.5 bg-[#2f2f2f]/85 hover:bg-[#343434]/95 focus:bg-[#343434] border border-[#3f3f3f] focus:border-cyan-700/60 text-[#ececec] placeholder-[#6f6f6f] text-sm rounded-xl focus:outline-none transition-all shadow-2xl backdrop-blur-md resize-none min-h-[50px] leading-relaxed [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#4f4f4f] [&::-webkit-scrollbar-thumb]:rounded-full"
                         />
                         <button 
                           onClick={() => handleSendMessage()}
@@ -1511,31 +1520,35 @@ export default function Page() {
                                 ? 'bg-[#2f2f2f] text-white rounded-tr-none' 
                                 : 'bg-[#171717]/80 border border-[#2f2f2f] text-[#ececec] rounded-tl-none space-y-4'
                             }`}>
-                              <div className="space-y-1 mt-0.5">
-                                <ReactMarkdown 
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    h1: ({node, ...props}) => <h1 className="text-xl sm:text-2xl font-extrabold text-white mt-6 mb-3 tracking-tight border-b border-[#2f2f2f] pb-2" {...props} />,
-                                    h2: ({node, ...props}) => <h2 className="text-lg sm:text-xl font-bold text-white mt-5 mb-2.5 tracking-tight" {...props} />,
-                                    h3: ({node, ...props}) => <h3 className="text-base sm:text-lg font-bold text-cyan-400 mt-4 mb-2" {...props} />,
-                                    p: ({node, ...props}) => <p className="text-sm sm:text-base text-[#d4d4d4] leading-relaxed mb-3" {...props} />,
-                                    ul: ({node, ...props}) => <ul className="list-disc pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
-                                    ol: ({node, ...props}) => <ol className="list-decimal pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
-                                    li: ({node, ...props}) => <li className="leading-relaxed" {...props} />,
-                                    strong: ({node, ...props}) => <strong className="font-semibold text-cyan-300" {...props} />,
-                                    a: ({node, ...props}) => <a className="text-cyan-400 hover:underline hover:text-cyan-300" {...props} />,
-                                    code: ({node, inline, ...props}: any) => 
-                                      inline 
-                                        ? <code className="bg-[#2a2a2a] text-cyan-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-[#3f3f3f]" {...props} />
-                                        : <div className="bg-[#111] p-4 rounded-xl overflow-x-auto border border-[#333] my-4 font-mono text-[#e2e2e2] text-sm whitespace-pre-wrap block" {...props} />,
-                                    blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-cyan-600 pl-4 py-1 my-4 bg-cyan-950/20 text-[#a0a0a0] italic" {...props} />,
-                                    table: ({node, ...props}) => <div className="overflow-x-auto my-4"><table className="w-full text-sm sm:text-base text-left text-[#d4d4d4]" {...props} /></div>,
-                                    th: ({node, ...props}) => <th className="px-4 py-2 border-b border-[#3f3f3f] font-bold text-white bg-[#2a2a2a]" {...props} />,
-                                    td: ({node, ...props}) => <td className="px-4 py-2 border-b border-[#2f2f2f]" {...props} />,
-                                  }}
-                                >
-                                  {msg.text}
-                                </ReactMarkdown>
+                              <div className={`space-y-1 mt-0.5 ${msg.sender === 'user' ? 'whitespace-pre-wrap' : ''}`}>
+                                {msg.sender === 'user' ? (
+                                  msg.text
+                                ) : (
+                                  <ReactMarkdown 
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                      h1: ({node, ...props}) => <h1 className="text-xl sm:text-2xl font-extrabold text-white mt-6 mb-3 tracking-tight border-b border-[#2f2f2f] pb-2" {...props} />,
+                                      h2: ({node, ...props}) => <h2 className="text-lg sm:text-xl font-bold text-white mt-5 mb-2.5 tracking-tight" {...props} />,
+                                      h3: ({node, ...props}) => <h3 className="text-base sm:text-lg font-bold text-cyan-400 mt-4 mb-2" {...props} />,
+                                      p: ({node, ...props}) => <p className="text-sm sm:text-base text-[#d4d4d4] leading-relaxed mb-3" {...props} />,
+                                      ul: ({node, ...props}) => <ul className="list-disc pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
+                                      ol: ({node, ...props}) => <ol className="list-decimal pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
+                                      li: ({node, ...props}) => <li className="leading-relaxed" {...props} />,
+                                      strong: ({node, ...props}) => <strong className="font-semibold text-cyan-300" {...props} />,
+                                      a: ({node, ...props}) => <a className="text-cyan-400 hover:underline hover:text-cyan-300" {...props} />,
+                                      code: ({node, inline, ...props}: any) => 
+                                        inline 
+                                          ? <code className="bg-[#2a2a2a] text-cyan-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-[#3f3f3f]" {...props} />
+                                          : <div className="bg-[#111] p-4 rounded-xl overflow-x-auto border border-[#333] my-4 font-mono text-[#e2e2e2] text-sm whitespace-pre-wrap block" {...props} />,
+                                      blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-cyan-600 pl-4 py-1 my-4 bg-cyan-950/20 text-[#a0a0a0] italic" {...props} />,
+                                      table: ({node, ...props}) => <div className="overflow-x-auto my-4"><table className="w-full text-sm sm:text-base text-left text-[#d4d4d4]" {...props} /></div>,
+                                      th: ({node, ...props}) => <th className="px-4 py-2 border-b border-[#3f3f3f] font-bold text-white bg-[#2a2a2a]" {...props} />,
+                                      td: ({node, ...props}) => <td className="px-4 py-2 border-b border-[#2f2f2f]" {...props} />,
+                                    }}
+                                  >
+                                    {msg.text}
+                                  </ReactMarkdown>
+                                )}
                               </div>
 
                               {/* Deep link Visualizer CTA */}
@@ -1584,13 +1597,22 @@ export default function Page() {
                     {/* Message input bar at bottom during conversation */}
                     <div className="p-4 bg-[#212121] border-t border-[#2f2f2f]">
                       <div className="max-w-3xl mx-auto relative">
-                        <input 
-                          type="text"
+                        <textarea 
                           value={inputText}
-                          onChange={(e) => setInputText(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                          onChange={(e) => {
+                            setInputText(e.target.value);
+                            e.target.style.height = 'auto';
+                            e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendMessage();
+                            }
+                          }}
+                          rows={1}
                           placeholder="Ask about cardiovascular, nervous, or pulmonary systems..."
-                          className="w-full pl-4 pr-12 py-3 bg-[#2f2f2f] hover:bg-[#343434] focus:bg-[#343434] border border-[#3f3f3f] focus:border-cyan-700/60 text-[#ececec] placeholder-[#6f6f6f] text-sm rounded-xl focus:outline-none transition-colors shadow-inner"
+                          className="w-full pl-4 pr-12 py-3 bg-[#2f2f2f] hover:bg-[#343434] focus:bg-[#343434] border border-[#3f3f3f] focus:border-cyan-700/60 text-[#ececec] placeholder-[#6f6f6f] text-sm rounded-xl focus:outline-none transition-colors shadow-inner resize-none min-h-[46px] leading-relaxed [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#4f4f4f] [&::-webkit-scrollbar-thumb]:rounded-full"
                         />
                         <button 
                           onClick={() => handleSendMessage()}
