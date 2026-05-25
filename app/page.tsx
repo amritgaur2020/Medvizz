@@ -118,40 +118,23 @@ export default function Page() {
   const [generatedModels, setGeneratedModels] = useState<any[]>([]);
 
   useEffect(() => {
-    if (!isLoaded) return; // Wait for Clerk auth to resolve
-
-    const userId = user?.id || 'guest';
-    const SESSION_KEY = `medvis_sessions_${userId}`;
-
-    // ── Load User Session on Mount ──
-    try {
-      const stored = localStorage.getItem('medvis_user');
-      if (stored) {
-        setUser(JSON.parse(stored));
-      }
-    } catch (_) {}
-
     const initData = async () => {
-      // ── 1. Load Sessions (Isolated per User) ──
+      if (!isLoaded) return;
+      const accountId = user?.id || 'anon';
+      const sessionKey = `medvis_sessions_${accountId}`;
+
+      // ── 1. Load Sessions (Isolated per account) ──
       try {
-        const res = await fetch(`/api/sessions?userId=${userId}`);
-        const data = await res.json();
-        
         let localSessions: any[] = [];
         try {
-          const s = localStorage.getItem(SESSION_KEY);
+          const s = localStorage.getItem(sessionKey);
           localSessions = s ? JSON.parse(s) : [];
         } catch (_) {}
 
-        let finalSessions = [];
-        if (data.sessions && data.sessions.length > 0) {
-          finalSessions = [...data.sessions];
-          if (data.sessions.length === 1 && data.sessions[0].id.startsWith('session_default') && localSessions.length > 0) {
-            finalSessions = localSessions;
-          }
-        } else {
-          finalSessions = localSessions.length > 0 ? localSessions : [{
-            id: 'session_default_' + Date.now(),
+        let finalSessions = localSessions;
+        if (finalSessions.length === 0) {
+          finalSessions = [{
+            id: `session_default_${Date.now()}`,
             title: 'MedVis AI Clinical Sandbox',
             model_type: 'general',
             created_at: new Date().toISOString()
@@ -160,65 +143,51 @@ export default function Page() {
 
         setSessions(finalSessions);
         try {
-          localStorage.setItem(SESSION_KEY, JSON.stringify(finalSessions));
+          localStorage.setItem(sessionKey, JSON.stringify(finalSessions));
         } catch (_) {}
 
         // Determine active session
-        const activeId = finalSessions[0]?.id || 'session_default';
-        setCurrentSessionId(activeId);
+        const activeId = finalSessions[0]?.id;
+        if (activeId) setCurrentSessionId(activeId);
 
-        // ── 2. Load Messages for Active Session (Isolated per User) ──
-        const msgRes = await fetch(`/api/sessions/messages?sessionId=${activeId}&userId=${userId}`);
-        const msgData = await msgRes.json();
-        
-        let localMsgs: any[] = [];
-        const MESSAGE_KEY = `medvis_messages_${userId}_${activeId}`;
-        try {
-          const m = localStorage.getItem(MESSAGE_KEY);
-          localMsgs = m ? JSON.parse(m) : [];
-        } catch (_) {}
+        // ── 2. Load Messages for Active Session (Isolated per account) ──
+        if (activeId) {
+          let localMsgs: any[] = [];
+          try {
+            const m = localStorage.getItem(`medvis_messages_${accountId}_${activeId}`);
+            localMsgs = m ? JSON.parse(m) : [];
+          } catch (_) {}
 
-        if (msgData.messages && msgData.messages.length > 0) {
-          if (msgData.messages.length === 1 && msgData.messages[0].id.startsWith('msg_welcome') && localMsgs.length > 0) {
+          if (localMsgs.length > 0) {
             setMessages(localMsgs);
           } else {
-            setMessages(msgData.messages.map((m: any) => ({
-              id: m.id,
-              sender: m.sender,
-              text: m.text,
-              suggestModel: m.suggest_model || undefined,
-              suggestLabel: m.suggest_label || undefined
-            })));
+            const welcomeMsg = {
+              id: 'msg_welcome_' + Date.now(),
+              sender: 'ai' as const,
+              text: "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.",
+            };
+            setMessages([welcomeMsg]);
+            try {
+              localStorage.setItem(`medvis_messages_${accountId}_${activeId}`, JSON.stringify([welcomeMsg]));
+            } catch (_) {}
           }
-        } else if (localMsgs.length > 0) {
-          setMessages(localMsgs);
-        } else {
-          const welcomeMsg = {
-            id: 'msg_welcome_' + Date.now(),
-            sender: 'ai' as const,
-            text: "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.",
-          };
-          setMessages([welcomeMsg]);
-          try {
-            localStorage.setItem(MESSAGE_KEY, JSON.stringify([welcomeMsg]));
-          } catch (_) {}
         }
       } catch (err) {
         console.error('Failed to initialize session data:', err);
       }
 
-      // ── 3. Load Generated Models (GLOBAL from Cloudflare R2) ──
+      // ── 3. Load Global Generated Models (Strictly from Cloudflare R2) ──
       try {
         const res = await fetch('/api/models');
         const data = await res.json();
         
         if (data.models && data.models.length > 0) {
-          setGeneratedModels(data.models); // Direct feed from R2
+          setGeneratedModels(data.models);
         } else {
           setGeneratedModels([]);
         }
       } catch (err) {
-        console.error('Failed to load global generated models:', err);
+        console.error('Failed to load global R2 generated models:', err);
       }
     };
 
@@ -230,18 +199,16 @@ export default function Page() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
 
+  // Persistent SQLite & LocalStorage Session Handlers
   const handleSelectSession = async (sessionId: string) => {
     setCurrentSessionId(sessionId);
     setActiveTab('chat');
     setIsThinking(false);
-    
-    const userId = user?.id || 'guest';
-    const MESSAGE_KEY = `medvis_messages_${userId}_${sessionId}`;
 
     // Check if we have local messages first for instant response
     let localMsgs: any[] = [];
     try {
-      const m = localStorage.getItem(MESSAGE_KEY);
+      const m = localStorage.getItem(`medvis_messages_${sessionId}`);
       localMsgs = m ? JSON.parse(m) : [];
     } catch (_) {}
     if (localMsgs.length > 0) {
@@ -249,7 +216,7 @@ export default function Page() {
     }
 
     try {
-      const msgRes = await fetch(`/api/sessions/messages?sessionId=${sessionId}&userId=${userId}`);
+      const msgRes = await fetch(`/api/sessions/messages?sessionId=${sessionId}`);
       const msgData = await msgRes.json();
       if (msgData.messages && msgData.messages.length > 0) {
         if (!(msgData.messages.length === 1 && msgData.messages[0].id.startsWith('msg_welcome') && localMsgs.length > 0)) {
@@ -262,7 +229,7 @@ export default function Page() {
           }));
           setMessages(parsed);
           try {
-            localStorage.setItem(MESSAGE_KEY, JSON.stringify(parsed));
+            localStorage.setItem(`medvis_messages_${sessionId}`, JSON.stringify(parsed));
           } catch (_) {}
         }
       }
@@ -279,16 +246,13 @@ export default function Page() {
       model_type: modelType,
       created_at: new Date().toISOString()
     };
-    
-    const userId = user?.id || 'guest';
-    const SESSION_KEY = `medvis_sessions_${userId}`;
 
     // Update session list state immediately
     const updatedSessions = [newSession, ...sessions];
     setSessions(updatedSessions);
     setCurrentSessionId(newSessionId);
     try {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSessions));
+      localStorage.setItem('medvis_sessions', JSON.stringify(updatedSessions));
     } catch (_) {}
 
     // Add initial welcome message
@@ -302,9 +266,7 @@ export default function Page() {
 
     setMessages([welcomeMsg]);
     try {
-      const userId = user?.id || 'guest';
-      const MESSAGE_KEY = `medvis_messages_${userId}_${newSessionId}`;
-      localStorage.setItem(MESSAGE_KEY, JSON.stringify([welcomeMsg]));
+      localStorage.setItem(`medvis_messages_${newSessionId}`, JSON.stringify([welcomeMsg]));
     } catch (_) {}
     setActiveTab('chat');
 
@@ -339,9 +301,8 @@ export default function Page() {
     const updatedSessions = sessions.filter(s => s.id !== sessionId);
     setSessions(updatedSessions);
     try {
-      const userId = user?.id || 'guest';
-      localStorage.setItem(`medvis_sessions_${userId}`, JSON.stringify(updatedSessions));
-      localStorage.removeItem(`medvis_messages_${userId}_${sessionId}`);
+      localStorage.setItem('medvis_sessions', JSON.stringify(updatedSessions));
+      localStorage.removeItem(`medvis_messages_${sessionId}`);
     } catch (_) {}
 
     // If we deleted the currently active session, switch to another one
@@ -379,10 +340,10 @@ export default function Page() {
     setInputText('');
     setIsThinking(true);
 
+    const accountId = user?.id || 'anon';
     // Save to local storage
     try {
-      const userId = user?.id || 'guest';
-      localStorage.setItem(`medvis_messages_${userId}_${currentSessionId}`, JSON.stringify(updatedMessages));
+      localStorage.setItem(`medvis_messages_${accountId}_${currentSessionId}`, JSON.stringify(updatedMessages));
     } catch (_) {}
 
     // Post user message to API asynchronously
@@ -406,7 +367,7 @@ export default function Page() {
       const updatedSess = sessions.map(s => s.id === currentSessionId ? { ...s, title: newTitle } : s);
       setSessions(updatedSess);
       try {
-        localStorage.setItem('medvis_sessions', JSON.stringify(updatedSess));
+        localStorage.setItem(`medvis_sessions_${accountId}`, JSON.stringify(updatedSess));
       } catch (_) {}
 
       fetch('/api/sessions', {
@@ -495,8 +456,8 @@ export default function Page() {
       setMessages(prev => {
         const nextMsgs = [...prev, newAiMsg];
         try {
-          const userId = user?.id || 'guest';
-          localStorage.setItem(`medvis_messages_${userId}_${currentSessionId}`, JSON.stringify(nextMsgs));
+          const accountId = user?.id || 'anon';
+          localStorage.setItem(`medvis_messages_${accountId}_${currentSessionId}`, JSON.stringify(nextMsgs));
         } catch (_) {}
         return nextMsgs;
       });
@@ -641,7 +602,7 @@ export default function Page() {
                 
                 setGeneratedModels(prev => [savedModelItem, ...prev]);
 
-                // POST to API
+                // POST to API directly (R2 Global Storage)
                 fetch('/api/models', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -766,16 +727,7 @@ export default function Page() {
     // Update local state
     setGeneratedModels(prev => prev.filter(m => m.id !== modelId));
     
-    // Update local storage
-    try {
-      const localModelsStr = localStorage.getItem('medvis_generated_models');
-      if (localModelsStr) {
-        const localModels = JSON.parse(localModelsStr);
-        localStorage.setItem('medvis_generated_models', JSON.stringify(localModels.filter((m: any) => m.id !== modelId)));
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    // Local storage caching removed. Handled exclusively by R2 database.
     
     // Delete from API
     try {
