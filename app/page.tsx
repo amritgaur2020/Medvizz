@@ -693,7 +693,7 @@ export default function Page() {
         const res = await fetch('/api/generate-labels', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ modelId: model.id, topic: model.topic, prompt: model.prompt })
+          body: JSON.stringify({ modelId: model.id, topic: model.topic, prompt: model.prompt, imageUrl: model.image_url })
         });
         const data = await res.json();
         if (data.success && data.dynamicLabels) {

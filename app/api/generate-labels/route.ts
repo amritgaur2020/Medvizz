@@ -9,7 +9,7 @@ function getXaiKey(): string {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { modelId, topic, prompt } = body;
+    const { modelId, topic, prompt, imageUrl } = body;
 
     if (!modelId || !topic) {
       return NextResponse.json({ error: 'Missing modelId or topic' }, { status: 400 });
@@ -50,7 +50,13 @@ Output EXACTLY a valid JSON object matching this schema, with no markdown, no qu
   }
 }`
           },
-          { role: 'user', content: `Topic: ${topic}\nPrompt used to generate model: ${prompt || 'None'}` }
+          { 
+            role: 'user', 
+            content: imageUrl ? [
+              { type: 'text', text: `Topic: ${topic}\nPrompt used to generate model: ${prompt || 'None'}\n\nVisually analyze this specific 3D render snapshot and map the exact coordinates to the visual structures you see in this specific image.` },
+              { type: 'image_url', image_url: { url: imageUrl } }
+            ] : `Topic: ${topic}\nPrompt used to generate model: ${prompt || 'None'}`
+          }
         ]
       })
     });

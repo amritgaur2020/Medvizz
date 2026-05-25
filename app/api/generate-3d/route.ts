@@ -175,7 +175,8 @@ export async function POST(req: Request) {
 // Polls Neural4D retrieveModel for generation status.
 // Returns: { success, codeStatus, modelUrl?, proxyUrl? }
 // ─────────────────────────────────────────────────────────────────────────────
-async function generateAnatomicalLabels(topic: string, prompt: string) {
+// ─────────────────────────────────────────────────────────────────────────────
+async function generateAnatomicalLabels(topic: string, prompt: string, imageUrl: string | null) {
   const xaiKey = getXaiKey();
   if (!xaiKey) return null;
   
@@ -210,7 +211,13 @@ Output EXACTLY a valid JSON object matching this schema, with no markdown, no qu
   }
 }`
           },
-          { role: 'user', content: `Topic: ${topic}\nPrompt used to generate model: ${prompt}` }
+          { 
+            role: 'user', 
+            content: imageUrl ? [
+              { type: 'text', text: `Topic: ${topic}\nPrompt used to generate model: ${prompt}\n\nVisually analyze this specific 3D render snapshot and map the exact coordinates to the visual structures you see in this specific image.` },
+              { type: 'image_url', image_url: { url: imageUrl } }
+            ] : `Topic: ${topic}\nPrompt used to generate model: ${prompt}`
+          }
         ]
       })
     });
@@ -335,8 +342,8 @@ export async function GET(req: Request) {
           ? `/api/proxy-model?url=${encodeURIComponent(neural4dModelUrl)}`
           : null;
 
-      // ── Generate Dynamic Labels via Grok ──
-      const dynamicLabels = await generateAnatomicalLabels(topic, prompt);
+      // ── Generate Dynamic Labels via Grok Vision ──
+      const dynamicLabels = await generateAnatomicalLabels(topic, prompt, finalImageUrl);
 
       // ── Save to R2 ─────────────────────────────────────────────────────
       let storedRecord: any = null;
