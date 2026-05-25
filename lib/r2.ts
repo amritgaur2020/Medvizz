@@ -298,3 +298,67 @@ export async function listR2ModelsWithMetadata(): Promise<any[]> {
     return [];
   }
 }
+
+/**
+ * Upload a generic JSON object to R2.
+ */
+export async function uploadJsonToR2(key: string, data: any): Promise<void> {
+  try {
+    const client = getR2Client();
+    const bucket = getBucketName();
+
+    await client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: JSON.stringify(data, null, 2),
+        ContentType: 'application/json',
+        CacheControl: 'no-cache, no-store, must-revalidate',
+      })
+    );
+    console.log(`[R2] Uploaded JSON → ${key}`);
+  } catch (err) {
+    console.error(`[R2] Failed to upload JSON to ${key}:`, err);
+  }
+}
+
+/**
+ * Retrieve a generic JSON object from R2.
+ */
+export async function getJsonFromR2(key: string): Promise<any | null> {
+  try {
+    const client = getR2Client();
+    const bucket = getBucketName();
+
+    const res = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+    );
+
+    if (res.Body) {
+      const bytes = await res.Body.transformToByteArray();
+      const text = new TextDecoder().decode(bytes);
+      return JSON.parse(text);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete a JSON object from R2.
+ */
+export async function deleteJsonFromR2(key: string): Promise<void> {
+  try {
+    const client = getR2Client();
+    const bucket = getBucketName();
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    console.log(`[R2] Deleted JSON → ${key}`);
+  } catch (err) {
+    console.error(`[R2] Failed to delete JSON ${key}:`, err);
+  }
+}
+

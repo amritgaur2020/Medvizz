@@ -114,6 +114,10 @@ export default function Page() {
   const [inputText, setInputText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Mode selection state (Simple vs Brief & Deep)
+  const [chatMode, setChatMode] = useState<'simple' | 'deep'>('deep');
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
 
   // Load sessions and generated models from SQLite/localStorage on mount
   const [generatedModels, setGeneratedModels] = useState<any[]>([]);
@@ -126,20 +130,55 @@ export default function Page() {
 
       // ── 1. Load Sessions (Isolated per account) ──
       try {
-        let localSessions: any[] = [];
+        let finalSessions: any[] = [];
         try {
-          const s = localStorage.getItem(sessionKey);
-          localSessions = s ? JSON.parse(s) : [];
-        } catch (_) {}
+          const res = await fetch(`/api/sessions?t=${Date.now()}`, { cache: 'no-store' });
+          const data = await res.json();
+          if (data.sessions && Array.isArray(data.sessions) && data.sessions.length > 0) {
+            finalSessions = data.sessions;
+          }
+        } catch (apiErr) {
+          console.warn('Failed to load sessions from API:', apiErr);
+        }
 
-        let finalSessions = localSessions;
         if (finalSessions.length === 0) {
+          try {
+            const s = localStorage.getItem(sessionKey);
+            finalSessions = s ? JSON.parse(s) : [];
+          } catch (_) {}
+        }
+
+        if (finalSessions.length === 0) {
+          const defaultSessionId = `session_default_${Date.now()}`;
           finalSessions = [{
-            id: `session_default_${Date.now()}`,
+            id: defaultSessionId,
             title: 'MedVis AI Clinical Sandbox',
             model_type: 'general',
             created_at: new Date().toISOString()
           }];
+          
+          // Asynchronously sync new default session to API
+          fetch('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: defaultSessionId, title: 'MedVis AI Clinical Sandbox', modelType: 'general' }),
+          }).catch(console.error);
+
+          const welcomeMsg = {
+            id: 'msg_welcome_' + Date.now(),
+            sender: 'ai' as const,
+            text: "Hello! I am your MedVis Medical AI. I can explain complex anatomical concepts, detailed physiological processes, and interactive clinical systems.\n\nType a question below or choose a starter module to begin, and visualize anatomical models instantly in real-time.",
+          };
+          fetch('/api/sessions/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: welcomeMsg.id,
+              sessionId: defaultSessionId,
+              sender: 'ai',
+              text: welcomeMsg.text
+            })
+          }).catch(console.error);
         }
 
         setSessions(finalSessions);
@@ -149,18 +188,37 @@ export default function Page() {
 
         // Determine active session
         const activeId = finalSessions[0]?.id;
-        if (activeId) setCurrentSessionId(activeId);
-
-        // ── 2. Load Messages for Active Session (Isolated per account) ──
         if (activeId) {
-          let localMsgs: any[] = [];
-          try {
-            const m = localStorage.getItem(`medvis_messages_${accountId}_${activeId}`);
-            localMsgs = m ? JSON.parse(m) : [];
-          } catch (_) {}
+          setCurrentSessionId(activeId);
+          const messagesKey = `medvis_messages_${accountId}_${activeId}`;
 
-          if (localMsgs.length > 0) {
-            setMessages(localMsgs);
+          // ── 2. Load Messages for Active Session ──
+          let finalMsgs: any[] = [];
+          try {
+            const msgRes = await fetch(`/api/sessions/messages?sessionId=${activeId}&t=${Date.now()}`, { cache: 'no-store' });
+            const msgData = await msgRes.json();
+            if (msgData.messages && Array.isArray(msgData.messages) && msgData.messages.length > 0) {
+              finalMsgs = msgData.messages.map((m: any) => ({
+                id: m.id,
+                sender: m.sender,
+                text: m.text,
+                suggestModel: m.suggest_model || undefined,
+                suggestLabel: m.suggest_label || undefined
+              }));
+            }
+          } catch (apiErr) {
+            console.warn('Failed to load active messages from API:', apiErr);
+          }
+
+          if (finalMsgs.length === 0) {
+            try {
+              const m = localStorage.getItem(messagesKey);
+              finalMsgs = m ? JSON.parse(m) : [];
+            } catch (_) {}
+          }
+
+          if (finalMsgs.length > 0) {
+            setMessages(finalMsgs);
           } else {
             const welcomeMsg = {
               id: 'msg_welcome_' + Date.now(),
@@ -169,8 +227,19 @@ export default function Page() {
             };
             setMessages([welcomeMsg]);
             try {
-              localStorage.setItem(`medvis_messages_${accountId}_${activeId}`, JSON.stringify([welcomeMsg]));
+              localStorage.setItem(messagesKey, JSON.stringify([welcomeMsg]));
             } catch (_) {}
+
+            fetch('/api/sessions/messages', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: welcomeMsg.id,
+                sessionId: activeId,
+                sender: 'ai',
+                text: welcomeMsg.text
+              })
+            }).catch(console.error);
           }
         }
       } catch (err) {
@@ -202,6 +271,9 @@ export default function Page() {
 
   // Persistent SQLite & LocalStorage Session Handlers
   const handleSelectSession = async (sessionId: string) => {
+    const accountId = user?.id || 'anon';
+    const messagesKey = `medvis_messages_${accountId}_${sessionId}`;
+    
     setCurrentSessionId(sessionId);
     setActiveTab('chat');
     setIsThinking(false);
@@ -209,7 +281,7 @@ export default function Page() {
     // Check if we have local messages first for instant response
     let localMsgs: any[] = [];
     try {
-      const m = localStorage.getItem(`medvis_messages_${sessionId}`);
+      const m = localStorage.getItem(messagesKey);
       localMsgs = m ? JSON.parse(m) : [];
     } catch (_) {}
     if (localMsgs.length > 0) {
@@ -220,19 +292,17 @@ export default function Page() {
       const msgRes = await fetch(`/api/sessions/messages?sessionId=${sessionId}`);
       const msgData = await msgRes.json();
       if (msgData.messages && msgData.messages.length > 0) {
-        if (!(msgData.messages.length === 1 && msgData.messages[0].id.startsWith('msg_welcome') && localMsgs.length > 0)) {
-          const parsed = msgData.messages.map((m: any) => ({
-            id: m.id,
-            sender: m.sender,
-            text: m.text,
-            suggestModel: m.suggest_model || undefined,
-            suggestLabel: m.suggest_label || undefined
-          }));
-          setMessages(parsed);
-          try {
-            localStorage.setItem(`medvis_messages_${sessionId}`, JSON.stringify(parsed));
-          } catch (_) {}
-        }
+        const parsed = msgData.messages.map((m: any) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+          suggestModel: m.suggest_model || undefined,
+          suggestLabel: m.suggest_label || undefined
+        }));
+        setMessages(parsed);
+        try {
+          localStorage.setItem(messagesKey, JSON.stringify(parsed));
+        } catch (_) {}
       }
     } catch (err) {
       console.error('Failed to load messages for session:', err);
@@ -240,7 +310,11 @@ export default function Page() {
   };
 
   const handleNewSession = async (title: string = 'New Medical Chat Session', modelType: string = 'general') => {
+    const accountId = user?.id || 'anon';
+    const sessionKey = `medvis_sessions_${accountId}`;
     const newSessionId = 'session_' + Date.now();
+    const messagesKey = `medvis_messages_${accountId}_${newSessionId}`;
+
     const newSession = {
       id: newSessionId,
       title,
@@ -253,7 +327,7 @@ export default function Page() {
     setSessions(updatedSessions);
     setCurrentSessionId(newSessionId);
     try {
-      localStorage.setItem('medvis_sessions', JSON.stringify(updatedSessions));
+      localStorage.setItem(sessionKey, JSON.stringify(updatedSessions));
     } catch (_) {}
 
     // Add initial welcome message
@@ -267,7 +341,7 @@ export default function Page() {
 
     setMessages([welcomeMsg]);
     try {
-      localStorage.setItem(`medvis_messages_${newSessionId}`, JSON.stringify([welcomeMsg]));
+      localStorage.setItem(messagesKey, JSON.stringify([welcomeMsg]));
     } catch (_) {}
     setActiveTab('chat');
 
@@ -299,11 +373,15 @@ export default function Page() {
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Avoid selecting the deleted session
     
+    const accountId = user?.id || 'anon';
+    const sessionKey = `medvis_sessions_${accountId}`;
+    const messagesKey = `medvis_messages_${accountId}_${sessionId}`;
+
     const updatedSessions = sessions.filter(s => s.id !== sessionId);
     setSessions(updatedSessions);
     try {
-      localStorage.setItem('medvis_sessions', JSON.stringify(updatedSessions));
-      localStorage.removeItem(`medvis_messages_${sessionId}`);
+      localStorage.setItem(sessionKey, JSON.stringify(updatedSessions));
+      localStorage.removeItem(messagesKey);
     } catch (_) {}
 
     // If we deleted the currently active session, switch to another one
@@ -342,9 +420,12 @@ export default function Page() {
     setIsThinking(true);
 
     const accountId = user?.id || 'anon';
+    const messagesKey = `medvis_messages_${accountId}_${currentSessionId}`;
+    const sessionKey = `medvis_sessions_${accountId}`;
+
     // Save to local storage
     try {
-      localStorage.setItem(`medvis_messages_${accountId}_${currentSessionId}`, JSON.stringify(updatedMessages));
+      localStorage.setItem(messagesKey, JSON.stringify(updatedMessages));
     } catch (_) {}
 
     // Post user message to API asynchronously
@@ -368,7 +449,7 @@ export default function Page() {
       const updatedSess = sessions.map(s => s.id === currentSessionId ? { ...s, title: newTitle } : s);
       setSessions(updatedSess);
       try {
-        localStorage.setItem(`medvis_sessions_${accountId}`, JSON.stringify(updatedSess));
+        localStorage.setItem(sessionKey, JSON.stringify(updatedSess));
       } catch (_) {}
 
       fetch('/api/sessions', {
@@ -378,6 +459,7 @@ export default function Page() {
       }).catch(console.error);
     }
 
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -386,7 +468,8 @@ export default function Page() {
         },
         body: JSON.stringify({ 
           sessionId: currentSessionId,
-          messages: updatedMessages 
+          messages: updatedMessages,
+          mode: chatMode
         }),
       });
 
@@ -1448,14 +1531,14 @@ export default function Page() {
                         Ask our clinical assistant about cardiovascular cycles, pulmonary mechanics, or neural pathways to visualize simulated models dynamically.
                       </p>
 
-                      {/* Chat Input placed above suggestions, exactly like ChatGPT */}
-                      <div className="w-full max-w-xl relative mb-6">
+                      {/* Large Perplexity-Style Chat Input Card */}
+                      <div className="w-full max-w-2xl bg-[#1e1e1e]/90 border border-[#2f2f2f] hover:border-[#3a3a3a] focus-within:border-cyan-700/60 focus-within:ring-1 focus-within:ring-cyan-700/20 rounded-2xl p-4 flex flex-col gap-2.5 transition-all shadow-2xl relative mb-8 text-left">
                         <textarea 
                           value={inputText}
                           onChange={(e) => {
                             setInputText(e.target.value);
                             e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+                            e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.shiftKey) {
@@ -1463,16 +1546,113 @@ export default function Page() {
                               handleSendMessage();
                             }
                           }}
-                          rows={1}
+                          rows={2}
                           placeholder="Ask about cardiovascular, nervous, or pulmonary systems..."
-                          className="w-full pl-5 pr-14 py-3.5 bg-[#2f2f2f]/85 hover:bg-[#343434]/95 focus:bg-[#343434] border border-[#3f3f3f] focus:border-cyan-700/60 text-[#ececec] placeholder-[#6f6f6f] text-sm rounded-xl focus:outline-none transition-all shadow-2xl backdrop-blur-md resize-none min-h-[50px] leading-relaxed [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#4f4f4f] [&::-webkit-scrollbar-thumb]:rounded-full"
+                          className="w-full bg-transparent text-[#ececec] placeholder-[#6f6f6f] text-sm focus:outline-none resize-none min-h-[60px] leading-relaxed [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#4f4f4f] [&::-webkit-scrollbar-thumb]:rounded-full"
                         />
-                        <button 
-                          onClick={() => handleSendMessage()}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 flex items-center justify-center text-cyan-400 transition-all shadow-md active:scale-95"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
+                        
+                        <div className="flex items-center justify-between mt-1 pt-2 border-t border-[#2a2a2a]">
+                          {/* Left controls */}
+                          <div className="flex items-center gap-2">
+                            <button 
+                              type="button" 
+                              title="Attach file (simulation context)"
+                              className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span className="hidden sm:inline">Attach</span>
+                            </button>
+                            
+                            <div className="h-4 w-[1px] bg-[#2a2a2a]" />
+                            
+                            <button 
+                              type="button" 
+                              title="Focus online search or subjects"
+                              className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                            >
+                              <Compass className="w-4 h-4 text-cyan-500" />
+                              <span>Focus</span>
+                            </button>
+                          </div>
+
+                          {/* Right controls */}
+                          <div className="flex items-center gap-2 relative">
+                            {/* Mode Selector Dropdown Button */}
+                            <button
+                              type="button"
+                              onClick={() => setIsModeMenuOpen(!isModeMenuOpen)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2a2a2a] hover:bg-[#323232] border border-[#3f3f3f] text-xs font-bold text-cyan-400 hover:text-cyan-300 rounded-xl transition-all shadow-sm"
+                            >
+                              {chatMode === 'simple' ? (
+                                <>
+                                  <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                                  <span>Mode: Simple</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Brain className="w-3.5 h-3.5 text-cyan-400" />
+                                  <span>Mode: Deep & Brief</span>
+                                </>
+                              )}
+                              <ChevronRight className="w-3 h-3 text-[#8e8e8e] rotate-90" />
+                            </button>
+
+                            {/* Dropdown Menu */}
+                            {isModeMenuOpen && (
+                              <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#1a1a1a] border border-[#2f2f2f] rounded-xl shadow-2xl p-1.5 z-50 flex flex-col gap-1">
+                                <p className="text-[9px] font-bold text-[#6f6f6f] px-2.5 py-1 uppercase tracking-wider">Select Explanation Mode</p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setChatMode('simple');
+                                    setIsModeMenuOpen(false);
+                                  }}
+                                  className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 ${chatMode === 'simple' ? 'bg-[#2a2a2a] text-cyan-400 font-bold' : 'hover:bg-[#252525] text-[#b4b4b4]'}`}
+                                >
+                                  <span className="text-xs font-bold flex items-center gap-1.5">
+                                    <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                                    Simple Language
+                                  </span>
+                                  <span className="text-[10px] text-[#8e8e8e] pl-5 leading-normal font-normal">
+                                    Easy-to-understand explanations with simple terminology and analogies.
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setChatMode('deep');
+                                    setIsModeMenuOpen(false);
+                                  }}
+                                  className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 ${chatMode === 'deep' ? 'bg-[#2a2a2a] text-cyan-400 font-bold' : 'hover:bg-[#252525] text-[#b4b4b4]'}`}
+                                >
+                                  <span className="text-xs font-bold flex items-center gap-1.5">
+                                    <Brain className="w-3.5 h-3.5 text-cyan-400" />
+                                    Brief & Deep
+                                  </span>
+                                  <span className="text-[10px] text-[#8e8e8e] pl-5 leading-normal font-normal">
+                                    Academically rigorous, scientifically precise physiological details in a concise format.
+                                  </span>
+                                </button>
+                              </div>
+                            )}
+
+                            <button 
+                              type="button"
+                              title="Voice Input"
+                              className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors"
+                            >
+                              <span className="w-4 h-4 flex items-center justify-center font-bold">🎙️</span>
+                            </button>
+
+                            <button 
+                              onClick={() => handleSendMessage()}
+                              disabled={!inputText.trim()}
+                              className="w-8 h-8 rounded-full bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:hover:bg-cyan-500 text-black flex items-center justify-center transition-all shadow-md active:scale-95"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
 
                       {/* Suggestions below input */}
@@ -1596,34 +1776,135 @@ export default function Page() {
 
                     {/* Message input bar at bottom during conversation */}
                     <div className="p-4 bg-[#212121] border-t border-[#2f2f2f]">
-                      <div className="max-w-3xl mx-auto relative">
-                        <textarea 
-                          value={inputText}
-                          onChange={(e) => {
-                            setInputText(e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              handleSendMessage();
-                            }
-                          }}
-                          rows={1}
-                          placeholder="Ask about cardiovascular, nervous, or pulmonary systems..."
-                          className="w-full pl-4 pr-12 py-3 bg-[#2f2f2f] hover:bg-[#343434] focus:bg-[#343434] border border-[#3f3f3f] focus:border-cyan-700/60 text-[#ececec] placeholder-[#6f6f6f] text-sm rounded-xl focus:outline-none transition-colors shadow-inner resize-none min-h-[46px] leading-relaxed [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#4f4f4f] [&::-webkit-scrollbar-thumb]:rounded-full"
-                        />
-                        <button 
-                          onClick={() => handleSendMessage()}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 flex items-center justify-center text-cyan-400 transition-colors shadow"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
+                      <div className="max-w-3xl mx-auto relative flex flex-col items-center">
+                        {/* Large Perplexity-Style Chat Input Card */}
+                        <div className="w-full bg-[#1e1e1e]/90 border border-[#2f2f2f] hover:border-[#3a3a3a] focus-within:border-cyan-700/60 focus-within:ring-1 focus-within:ring-cyan-700/20 rounded-2xl p-4 flex flex-col gap-2.5 transition-all shadow-2xl relative text-left">
+                          <textarea 
+                            value={inputText}
+                            onChange={(e) => {
+                              setInputText(e.target.value);
+                              e.target.style.height = 'auto';
+                              e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendMessage();
+                              }
+                            }}
+                            rows={1}
+                            placeholder="Ask about cardiovascular, nervous, or pulmonary systems..."
+                            className="w-full bg-transparent text-[#ececec] placeholder-[#6f6f6f] text-sm focus:outline-none resize-none min-h-[30px] max-h-[200px] leading-relaxed [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#4f4f4f] [&::-webkit-scrollbar-thumb]:rounded-full"
+                          />
+                          
+                          <div className="flex items-center justify-between mt-1 pt-2 border-t border-[#2a2a2a]">
+                            {/* Left controls */}
+                            <div className="flex items-center gap-2">
+                              <button 
+                                type="button" 
+                                title="Attach file (simulation context)"
+                                className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                              >
+                                <Plus className="w-4 h-4" />
+                                <span className="hidden sm:inline">Attach</span>
+                              </button>
+                              
+                              <div className="h-4 w-[1px] bg-[#2a2a2a]" />
+                              
+                              <button 
+                                type="button" 
+                                title="Focus online search or subjects"
+                                className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                              >
+                                <Compass className="w-4 h-4 text-cyan-500" />
+                                <span>Focus</span>
+                              </button>
+                            </div>
+
+                            {/* Right controls */}
+                            <div className="flex items-center gap-2 relative">
+                              {/* Mode Selector Dropdown Button */}
+                              <button
+                                type="button"
+                                onClick={() => setIsModeMenuOpen(!isModeMenuOpen)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2a2a2a] hover:bg-[#323232] border border-[#3f3f3f] text-xs font-bold text-cyan-400 hover:text-cyan-300 rounded-xl transition-all shadow-sm"
+                              >
+                                {chatMode === 'simple' ? (
+                                  <>
+                                    <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span>Mode: Simple</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Brain className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span>Mode: Deep & Brief</span>
+                                  </>
+                                )}
+                                <ChevronRight className="w-3 h-3 text-[#8e8e8e] rotate-90" />
+                              </button>
+
+                              {/* Dropdown Menu */}
+                              {isModeMenuOpen && (
+                                <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#1a1a1a] border border-[#2f2f2f] rounded-xl shadow-2xl p-1.5 z-50 flex flex-col gap-1">
+                                  <p className="text-[9px] font-bold text-[#6f6f6f] px-2.5 py-1 uppercase tracking-wider">Select Explanation Mode</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setChatMode('simple');
+                                      setIsModeMenuOpen(false);
+                                    }}
+                                    className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 ${chatMode === 'simple' ? 'bg-[#2a2a2a] text-cyan-400 font-bold' : 'hover:bg-[#252525] text-[#b4b4b4]'}`}
+                                  >
+                                    <span className="text-xs font-bold flex items-center gap-1.5">
+                                      <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                                      Simple Language
+                                    </span>
+                                    <span className="text-[10px] text-[#8e8e8e] pl-5 leading-normal font-normal">
+                                      Easy-to-understand explanations with simple terminology and analogies.
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setChatMode('deep');
+                                      setIsModeMenuOpen(false);
+                                    }}
+                                    className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 ${chatMode === 'deep' ? 'bg-[#2a2a2a] text-cyan-400 font-bold' : 'hover:bg-[#252525] text-[#b4b4b4]'}`}
+                                  >
+                                    <span className="text-xs font-bold flex items-center gap-1.5">
+                                      <Brain className="w-3.5 h-3.5 text-cyan-400" />
+                                      Brief & Deep
+                                    </span>
+                                    <span className="text-[10px] text-[#8e8e8e] pl-5 leading-normal font-normal">
+                                      Academically rigorous, scientifically precise physiological details in a concise format.
+                                    </span>
+                                  </button>
+                                </div>
+                              )}
+
+                              <button 
+                                type="button"
+                                title="Voice Input"
+                                className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors"
+                              >
+                                <span className="w-4 h-4 flex items-center justify-center font-bold">🎙️</span>
+                              </button>
+
+                              <button 
+                                onClick={() => handleSendMessage()}
+                                disabled={!inputText.trim()}
+                                className="w-8 h-8 rounded-full bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:hover:bg-cyan-500 text-black flex items-center justify-center transition-all shadow-md active:scale-95"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <p className="text-center text-[10px] text-[#6f6f6f] mt-2">
+                          MedVis AI models simulated medical systems. Always cross-reference with peer-reviewed medical catalogs.
+                        </p>
                       </div>
-                      <p className="text-center text-[10px] text-[#6f6f6f] mt-2">
-                        MedVis AI models simulated medical systems. Always cross-reference with peer-reviewed medical catalogs.
-                      </p>
                     </div>
                   </div>
                 )}
