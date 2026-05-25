@@ -1209,7 +1209,7 @@ export default function Page() {
 
           {/* LEFT SIDEBAR (ChatGPT Style) */}
           <div className={`transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64 p-3.5 opacity-100 border-r border-[#2f2f2f]' : 'w-0 p-0 opacity-0 border-r-0 overflow-hidden'} flex-shrink-0 bg-[#171717] flex flex-col justify-between fixed md:relative inset-y-0 left-0 md:inset-y-auto md:left-auto z-40 md:z-auto shadow-2xl md:shadow-none`}>
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 pb-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#3f3f3f] [&::-webkit-scrollbar-thumb]:rounded-full">
               
               {/* Sidebar Header / New Chat */}
               <div className="flex items-center justify-between gap-2 mb-4">
@@ -1817,7 +1817,7 @@ export default function Page() {
                     </div>
 
                     {/* Right Structure Selection & Medical Details Panel */}
-                    <div className="w-full md:w-80 bg-[#171717] p-5 flex flex-col justify-between md:overflow-y-auto select-none border-t md:border-t-0 md:border-l border-[#2f2f2f]">
+                    <div className="w-full md:w-80 bg-[#171717] p-5 flex flex-col justify-between overflow-y-auto select-none border-t md:border-t-0 md:border-l border-[#2f2f2f] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#3f3f3f] [&::-webkit-scrollbar-thumb]:rounded-full">
                       <div className="space-y-6">
                         <div className="text-left">
                           <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest mb-1">
