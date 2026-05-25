@@ -42,7 +42,7 @@ export default function RootLayout({
       appearance={{ 
         baseTheme: dark,
         variables: { 
-          colorPrimary: '#ffffff', // Changed to white as per request
+          colorPrimary: '#06b6d4', 
           colorBackground: '#0d0d0d', 
           colorInputBackground: '#1a1a1a',
           colorInputText: '#ffffff',
@@ -56,7 +56,7 @@ export default function RootLayout({
           socialButtonsBlockButton: 'border-[#2f2f2f] hover:border-[#3f3f3f] bg-[#212121]/30 hover:bg-[#212121]/70 transition-all !text-white',
           socialButtonsBlockButtonText: '!text-white font-semibold',
           socialButtonsBlockButtonArrow: '!text-white',
-          socialButtonsProviderIcon: '!text-white grayscale brightness-200 contrast-200',
+          socialButtonsProviderIcon: 'invert opacity-80 hover:opacity-100 transition-opacity',
           formButtonPrimary: 'bg-cyan-600 hover:bg-cyan-500 text-sm font-bold !text-white transition-all shadow-[0_0_15px_rgba(6,182,212,0.3)] hover:shadow-[0_0_25px_rgba(6,182,212,0.5)] border-none',
           formFieldInput: 'bg-[#111] border border-[#2f2f2f] rounded-xl px-4 py-3.5 text-sm !text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all',
           formFieldLabel: '!text-white font-semibold',
@@ -71,7 +71,6 @@ export default function RootLayout({
           userButtonPopoverActionButtonIcon: '!text-white',
           userButtonPopoverFooter: '!text-white',
           badge: '!text-white',
-          providerIcon: '!text-white',
         }
       }}
     >
