@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getXaiKey, uploadMetadataToR2, getR2File } from '@/lib/r2';
+import { getXaiKey, uploadMetadataToR2, getMetadataFromR2 } from '@/lib/r2';
 
 export async function POST(req: Request) {
   try {
@@ -68,17 +68,9 @@ Output EXACTLY a valid JSON object matching this schema, with no markdown, no qu
     const dynamicLabels = JSON.parse(content.trim());
 
     // ── Fetch existing metadata from R2, update it, and save it back ──
-    const existingFile = await getR2File(`metadata/${modelId}.json`);
-    if (existingFile) {
-      const existingData = await existingFile.text();
-      let metadata = {};
-      try {
-        metadata = JSON.parse(existingData);
-      } catch (e) {
-        console.error('Failed to parse existing metadata:', e);
-      }
-      
-      const updatedMetadata = { ...metadata, dynamicLabels };
+    const existingData = await getMetadataFromR2(modelId);
+    if (existingData) {
+      const updatedMetadata = { ...existingData, dynamicLabels };
       await uploadMetadataToR2(modelId, updatedMetadata);
       console.log(`[R2] Metadata for ${modelId} successfully updated with dynamic labels.`);
     }
