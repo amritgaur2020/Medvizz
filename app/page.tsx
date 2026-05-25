@@ -1208,7 +1208,7 @@ export default function Page() {
           )}
 
           {/* LEFT SIDEBAR (ChatGPT Style) */}
-          <div className={`h-full max-h-[100dvh] transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64 p-3.5 opacity-100 border-r border-[#2f2f2f]' : 'w-0 p-0 opacity-0 border-r-0 overflow-hidden'} flex-shrink-0 bg-[#171717] flex flex-col justify-between fixed md:relative inset-y-0 left-0 md:inset-y-auto md:left-auto z-40 md:z-auto shadow-2xl md:shadow-none`}>
+          <div className={`h-full max-h-[100dvh] overflow-hidden transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64 p-3.5 opacity-100 border-r border-[#2f2f2f]' : 'w-0 p-0 opacity-0 border-r-0 overflow-hidden'} flex-shrink-0 bg-[#171717] flex flex-col justify-between fixed md:relative inset-y-0 left-0 md:inset-y-auto md:left-auto z-40 md:z-auto shadow-2xl md:shadow-none`}>
             <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto pr-1 pb-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#3f3f3f] [&::-webkit-scrollbar-thumb]:rounded-full">
               
               {/* Sidebar Header / New Chat */}
