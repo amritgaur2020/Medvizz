@@ -77,7 +77,7 @@ RESPONSE REQUIREMENTS:
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'grok-beta',
+          model: 'grok-4.20-0309-reasoning',
           messages: formattedMessages,
           temperature: 0.4,
         }),
