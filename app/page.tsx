@@ -1562,17 +1562,6 @@ export default function Page() {
                               <Plus className="w-4 h-4" />
                               <span className="hidden sm:inline">Attach</span>
                             </button>
-                            
-                            <div className="h-4 w-[1px] bg-[#2a2a2a]" />
-                            
-                            <button 
-                              type="button" 
-                              title="Focus online search or subjects"
-                              className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
-                            >
-                              <Compass className="w-4 h-4 text-cyan-500" />
-                              <span>Focus</span>
-                            </button>
                           </div>
 
                           {/* Right controls */}
@@ -1635,14 +1624,6 @@ export default function Page() {
                                 </button>
                               </div>
                             )}
-
-                            <button 
-                              type="button"
-                              title="Voice Input"
-                              className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors"
-                            >
-                              <span className="w-4 h-4 flex items-center justify-center font-bold">🎙️</span>
-                            </button>
 
                             <button 
                               onClick={() => handleSendMessage()}
@@ -1808,17 +1789,6 @@ export default function Page() {
                                 <Plus className="w-4 h-4" />
                                 <span className="hidden sm:inline">Attach</span>
                               </button>
-                              
-                              <div className="h-4 w-[1px] bg-[#2a2a2a]" />
-                              
-                              <button 
-                                type="button" 
-                                title="Focus online search or subjects"
-                                className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
-                              >
-                                <Compass className="w-4 h-4 text-cyan-500" />
-                                <span>Focus</span>
-                              </button>
                             </div>
 
                             {/* Right controls */}
@@ -1881,14 +1851,6 @@ export default function Page() {
                                   </button>
                                 </div>
                               )}
-
-                              <button 
-                                type="button"
-                                title="Voice Input"
-                                className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors"
-                              >
-                                <span className="w-4 h-4 flex items-center justify-center font-bold">🎙️</span>
-                              </button>
 
                               <button 
                                 onClick={() => handleSendMessage()}
