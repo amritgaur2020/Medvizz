@@ -26,6 +26,7 @@ import {
   Tag,
   Trash2
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { BackgroundPaths } from '@/components/background-paths';
 import dynamic from 'next/dynamic';
 
@@ -2103,17 +2104,34 @@ export default function Page() {
                           )}
 
                           {dynamicLabels && dynamicLabels.structures && dynamicLabels.structures.map((item: string) => (
-                            <button
-                              key={item}
-                              onClick={() => setActiveStructure(item)}
-                              className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs text-left font-medium transition-all ${activeStructure === item ? 'bg-cyan-950/40 border-cyan-800 text-white shadow shadow-cyan-950/20' : 'border-[#2f2f2f] hover:border-[#3f3f3f] text-[#b4b4b4] hover:text-white'}`}
-                            >
-                              <span className="flex items-center gap-2.5">
-                                <span className={`w-1.5 h-1.5 rounded-full ${activeStructure === item ? 'bg-cyan-400 animate-pulse' : 'bg-neutral-600'}`} />
-                                {item}
-                              </span>
-                              <ChevronRight className="w-3.5 h-3.5 text-[#5f5f5f]" />
-                            </button>
+                            <div key={item} className="flex flex-col">
+                              <button
+                                onClick={() => setActiveStructure(activeStructure === item ? '' : item)}
+                                className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs text-left font-medium transition-all ${activeStructure === item ? 'bg-cyan-950/40 border-cyan-800 text-white shadow shadow-cyan-950/20 rounded-b-none border-b-transparent' : 'border-[#2f2f2f] hover:border-[#3f3f3f] text-[#b4b4b4] hover:text-white'}`}
+                              >
+                                <span className="flex items-center gap-2.5">
+                                  <span className={`w-1.5 h-1.5 rounded-full ${activeStructure === item ? 'bg-cyan-400 animate-pulse' : 'bg-neutral-600'}`} />
+                                  {item}
+                                </span>
+                                <ChevronRight className={`w-3.5 h-3.5 text-[#5f5f5f] transition-transform duration-300 ${activeStructure === item ? 'rotate-90 text-cyan-500' : ''}`} />
+                              </button>
+                              
+                              <AnimatePresence>
+                                {activeStructure === item && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="p-4 pt-2 border border-t-0 border-cyan-800 bg-cyan-950/20 rounded-b-xl text-[10px] text-cyan-100/70 leading-relaxed shadow-inner">
+                                      {dynamicLabels.info?.[item] || "Advanced scanning data is not currently available for this clinical region."}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
                           ))}
                         </div>
 
