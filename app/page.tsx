@@ -725,7 +725,7 @@ export default function Page() {
     }
   };
 
-  const handleLoadSavedModel = (model: any) => {
+  const handleLoadSavedModel = async (model: any) => {
     const rawModel = (['heart', 'brain', 'lungs', 'kidneys'].includes(model.topic.toLowerCase())
       ? model.topic.toLowerCase()
       : 'kidneys') as 'heart' | 'brain' | 'lungs' | 'kidneys';
@@ -735,16 +735,43 @@ export default function Page() {
     setNeural4dPrompt(model.prompt);
     setNeural4dModelUrl(model.model_url);
     setNeural4dImageUrl(model.image_url || null);
-    setDynamicLabels(model.dynamicLabels || null);
-    setIsGenerating3D(false);
     
-    // Set active structure to the first dynamically available label if possible
-    if (model.dynamicLabels?.structures?.[0]) {
-      setActiveStructure(model.dynamicLabels.structures[0]);
-    } else {
+    // Fallback in case old models don't have dynamic labels
+    if (!model.dynamicLabels) {
+      setDynamicLabels(null);
       setActiveStructure("External Organ Surface");
+      setActiveTab('3d');
+      setIsGenerating3D(false);
+      
+      try {
+        console.log('[Frontend] Model missing dynamic labels, generating on the fly...');
+        const res = await fetch('/api/generate-labels', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ modelId: model.id, topic: model.topic, prompt: model.prompt })
+        });
+        const data = await res.json();
+        if (data.success && data.dynamicLabels) {
+          setDynamicLabels(data.dynamicLabels);
+          if (data.dynamicLabels.structures?.[0]) {
+            setActiveStructure(data.dynamicLabels.structures[0]);
+          }
+          // Update local memory so we don't fetch it again
+          model.dynamicLabels = data.dynamicLabels;
+        }
+      } catch (err) {
+        console.error('[Frontend] Failed to backfill dynamic labels:', err);
+      }
+    } else {
+      setDynamicLabels(model.dynamicLabels);
+      if (model.dynamicLabels?.structures?.[0]) {
+        setActiveStructure(model.dynamicLabels.structures[0]);
+      } else {
+        setActiveStructure("External Organ Surface");
+      }
+      setActiveTab('3d');
+      setIsGenerating3D(false);
     }
-    setActiveTab('3d');
   };
 
   const handleDeleteSavedModel = async (modelId: string, e: React.MouseEvent) => {
