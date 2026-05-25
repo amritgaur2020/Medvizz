@@ -89,6 +89,7 @@ export function ThreeDModel({
   dynamicLabels = null
 }: ThreeDModelProps) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const modelSizeRef = useRef<THREE.Vector3 | null>(null);
   const [nodePositions, setNodePositions] = React.useState<Array<{ name: string; x: number; y: number; dx: number; dy: number }>>([]);
 
   useEffect(() => {
@@ -324,6 +325,7 @@ export function ThreeDModel({
           const maxDim = Math.max(size.x, size.y, size.z);
           const scale = maxDim > 0 ? 3.2 / maxDim : 1.0;
           loadedModel.scale.set(scale, scale, scale);
+          modelSizeRef.current = size.clone().multiplyScalar(scale);
 
           // Keep original photorealistic Neural4D colors, textures, and materials!
           loadedModel.traverse((child: any) => {
@@ -407,11 +409,23 @@ export function ThreeDModel({
       
       if (neural4dModelUrl && neural4dModelUrl !== 'fallback') {
         if (dynamicLabels && dynamicLabels.positions) {
-          // Map dynamic Grok JSON labels to THREE Vectors
+          // Map dynamic Grok JSON labels securely onto the actual bounding box of the mesh
           activePositions = {};
+          const mSize = modelSizeRef.current || new THREE.Vector3(2.5, 2.5, 2.5);
+          
           Object.keys(dynamicLabels.positions).forEach(key => {
             const p = dynamicLabels.positions[key];
-            activePositions[key] = new THREE.Vector3(p.x, p.y, p.z);
+            // Normalize Grok's raw -1.5 to 1.5 range to a -1.0 to 1.0 percentage
+            const normX = p.x / 1.5;
+            const normY = p.y / 1.5;
+            const normZ = p.z / 1.5;
+            
+            // Map percentages to exactly 90% of the distance to the edge of the mesh!
+            activePositions[key] = new THREE.Vector3(
+              normX * (mSize.x / 2) * 0.9,
+              normY * (mSize.y / 2) * 0.9,
+              normZ * (mSize.z / 2) * 0.9
+            );
           });
         } else {
           activePositions = {
