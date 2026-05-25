@@ -178,7 +178,7 @@ export default function Page() {
 
       // ── 3. Load Global Generated Models (Strictly from Cloudflare R2) ──
       try {
-        const res = await fetch('/api/models');
+        const res = await fetch(`/api/models?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
         
         if (data.models && data.models.length > 0) {

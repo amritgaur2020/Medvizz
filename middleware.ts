@@ -1,6 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 
-const isPublicRoute = createRouteMatcher(['/', '/api/generate-labels', '/api/generate-3d', '/api/sessions(.*)']);
+const isPublicRoute = createRouteMatcher(['/', '/api/generate-labels', '/api/generate-3d', '/api/sessions(.*)', '/api/models(.*)']);
 
 export default clerkMiddleware((auth, req) => {
   if (!isPublicRoute(req)) auth().protect();

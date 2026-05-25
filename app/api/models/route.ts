@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { listR2ModelsWithMetadata, uploadMetadataToR2, deleteModelFromR2 } from '@/lib/r2';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/models
  * Lists all generated models directly from Cloudflare R2, populated with metadata.
