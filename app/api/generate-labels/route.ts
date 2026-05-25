@@ -68,8 +68,13 @@ Output EXACTLY a valid JSON object matching this schema, with no markdown, no qu
 
     const d = await grokRes.json();
     let content = d.choices?.[0]?.message?.content?.trim() || '';
-    if (content.startsWith('```json')) content = content.replace(/```json/g, '');
-    if (content.endsWith('```')) content = content.replace(/```/g, '');
+    
+    // Safely extract JSON from markdown code blocks if present
+    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      content = jsonMatch[1];
+    }
+    
     const dynamicLabels = JSON.parse(content.trim());
 
     // ── Fetch existing metadata from R2, update it, and save it back ──

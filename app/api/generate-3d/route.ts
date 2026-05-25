@@ -224,8 +224,12 @@ Output EXACTLY a valid JSON object matching this schema, with no markdown, no qu
     if (grokRes.ok) {
       const d = await grokRes.json();
       let content = d.choices?.[0]?.message?.content?.trim() || '';
-      if (content.startsWith('```json')) content = content.replace(/```json/g, '');
-      if (content.endsWith('```')) content = content.replace(/```/g, '');
+      
+      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        content = jsonMatch[1];
+      }
+      
       return JSON.parse(content.trim());
     } else {
       console.error('[Grok] Failed to generate labels:', await grokRes.text());
