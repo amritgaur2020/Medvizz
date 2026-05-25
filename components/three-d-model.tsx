@@ -15,6 +15,7 @@ interface ThreeDModelProps {
   neural4dModelUrl?: string | null;
   neural4dImageUrl?: string | null;
   pollProgress?: number;
+  dynamicLabels?: any;
 }
 
 // 3D coordinates on each modular anatomy model
@@ -84,7 +85,8 @@ export function ThreeDModel({
   neural4dPrompt = null,
   neural4dModelUrl = null,
   neural4dImageUrl = null,
-  pollProgress = 0
+  pollProgress = 0,
+  dynamicLabels = null
 }: ThreeDModelProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [nodePositions, setNodePositions] = React.useState<Array<{ name: string; x: number; y: number; dx: number; dy: number }>>([]);
@@ -404,12 +406,21 @@ export function ThreeDModel({
       let activePositions = nodePositionsMap[type] as Record<string, any>;
       
       if (neural4dModelUrl && neural4dModelUrl !== 'fallback') {
-        activePositions = {
-          "External Organ Surface": new THREE.Vector3(-1.2, 0.8, 0.5),
-          "Veins & Blood Streams": new THREE.Vector3(1.0, -0.4, 0.4),
-          "Natural Organ Coloration": new THREE.Vector3(0.0, 1.2, -0.3),
-          "Internal Cavity & Cross-section": new THREE.Vector3(-0.4, -1.0, 0.2)
-        };
+        if (dynamicLabels && dynamicLabels.positions) {
+          // Map dynamic Grok JSON labels to THREE Vectors
+          activePositions = {};
+          Object.keys(dynamicLabels.positions).forEach(key => {
+            const p = dynamicLabels.positions[key];
+            activePositions[key] = new THREE.Vector3(p.x, p.y, p.z);
+          });
+        } else {
+          activePositions = {
+            "External Organ Surface": new THREE.Vector3(-1.2, 0.8, 0.5),
+            "Veins & Blood Streams": new THREE.Vector3(1.0, -0.4, 0.4),
+            "Natural Organ Coloration": new THREE.Vector3(0.0, 1.2, -0.3),
+            "Internal Cavity & Cross-section": new THREE.Vector3(-0.4, -1.0, 0.2)
+          };
+        }
       }
       
       const positionsArray: Array<{ name: string; x: number; y: number; dx: number; dy: number }> = [];
@@ -417,7 +428,13 @@ export function ThreeDModel({
         const tempV = new THREE.Vector3().copy(localPos).applyMatrix4(group.matrixWorld).project(camera);
         const x = (tempV.x * 0.5 + 0.5) * mount.clientWidth;
         const y = (-(tempV.y * 0.5) + 0.5) * mount.clientHeight;
-        const offset = labelOffsets[name] || { dx: 15, dy: 10 };
+        
+        let offset = labelOffsets[name] || { dx: 15, dy: 10 };
+        // Override with dynamic offsets if provided by Grok
+        if (dynamicLabels && dynamicLabels.offsets && dynamicLabels.offsets[name]) {
+          offset = dynamicLabels.offsets[name];
+        }
+        
         positionsArray.push({ name, x, y, dx: (offset.dx / 100) * mount.clientWidth, dy: (offset.dy / 100) * mount.clientHeight });
       });
       setNodePositions(positionsArray);

@@ -175,6 +175,67 @@ export async function POST(req: Request) {
 // Polls Neural4D retrieveModel for generation status.
 // Returns: { success, codeStatus, modelUrl?, proxyUrl? }
 // ─────────────────────────────────────────────────────────────────────────────
+async function generateAnatomicalLabels(topic: string, prompt: string) {
+  const xaiKey = getXaiKey();
+  if (!xaiKey) return null;
+  
+  try {
+    console.log('[Grok] Generating dynamic anatomical labels for:', topic);
+    const grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${xaiKey}` },
+      body: JSON.stringify({
+        model: 'grok-2-1212',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a medical 3D visualizer assistant. Given an anatomical organ or structure, generate EXACTLY 4 specific, medically accurate anatomical labels for it.
+For each label, provide a short 1-sentence description, approximate 3D spatial coordinates (x, y, z) to position the label on a 3D model, and 2D screen offsets (dx, dy).
+- 3D coordinates (x, y, z) should be floats between -1.5 and 1.5.
+- 2D offsets (dx, dy) should be integers between -25 and 25.
+Output EXACTLY a valid JSON object matching this schema, with no markdown, no quotes, no extra text:
+{
+  "structures": ["Label 1", "Label 2", "Label 3", "Label 4"],
+  "info": {
+    "Label 1": "Description...",
+    "Label 2": "Description...",
+    "Label 3": "Description...",
+    "Label 4": "Description..."
+  },
+  "positions": {
+    "Label 1": { "x": 0.5, "y": 0.5, "z": 0.2 },
+    "Label 2": { "x": -0.5, "y": -0.5, "z": -0.1 },
+    "Label 3": { "x": 0.0, "y": 1.0, "z": 0.0 },
+    "Label 4": { "x": -1.0, "y": 0.0, "z": 0.5 }
+  },
+  "offsets": {
+    "Label 1": { "dx": 18, "dy": -12 },
+    "Label 2": { "dx": -18, "dy": 15 },
+    "Label 3": { "dx": 20, "dy": -10 },
+    "Label 4": { "dx": -20, "dy": 10 }
+  }
+}`
+          },
+          { role: 'user', content: `Topic: ${topic}\nPrompt used to generate model: ${prompt}` }
+        ]
+      })
+    });
+    
+    if (grokRes.ok) {
+      const d = await grokRes.json();
+      let content = d.choices?.[0]?.message?.content?.trim() || '';
+      if (content.startsWith('```json')) content = content.replace(/```json/g, '');
+      if (content.endsWith('```')) content = content.replace(/```/g, '');
+      return JSON.parse(content.trim());
+    } else {
+      console.error('[Grok] Failed to generate labels:', await grokRes.text());
+    }
+  } catch (e) {
+    console.error('[Grok] Error generating dynamic labels:', e);
+  }
+  return null;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -276,6 +337,9 @@ export async function GET(req: Request) {
           ? `/api/proxy-model?url=${encodeURIComponent(neural4dModelUrl)}`
           : null;
 
+      // ── Generate Dynamic Labels via Grok ──
+      const dynamicLabels = await generateAnatomicalLabels(topic, prompt);
+
       // ── Save to R2 ─────────────────────────────────────────────────────
       let storedRecord: any = null;
       try {
@@ -287,7 +351,8 @@ export async function GET(req: Request) {
           image_url: finalImageUrl,
           title,
           user_id: userId,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          dynamicLabels
         };
         await uploadMetadataToR2(modelId, storedRecord);
         console.log('[Neural4D] Model successfully saved to R2:', storedRecord);

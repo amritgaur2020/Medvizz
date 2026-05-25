@@ -101,6 +101,7 @@ export default function Page() {
   const [neural4dImageUrl, setNeural4dImageUrl] = useState<string | null>(null);
   const [customLabel, setCustomLabel] = useState<string | null>(null);
   const [pollProgress, setPollProgress] = useState(0); // 0-100 for progress bar
+  const [dynamicLabels, setDynamicLabels] = useState<any>(null);
   
   // SQLite persistent session states
   const [sessions, setSessions] = useState<any[]>([]);
@@ -618,23 +619,32 @@ export default function Page() {
               complete = true;
               const loadUrl = pollData.modelUrl || pollData.proxyUrl;
               const generatedImgUrl = pollData.imageUrl || null;
+              const generatedLabels = pollData.modelRecord?.dynamicLabels || null;
+              
               if (loadUrl) {
                 console.log('[Neural4D] ✅ Model ready! Loading:', loadUrl, 'Image:', generatedImgUrl);
                 setPollProgress(100);
                 setNeural4dModelUrl(loadUrl);
                 setNeural4dImageUrl(generatedImgUrl);
+                if (generatedLabels) {
+                  setDynamicLabels(generatedLabels);
+                  if (generatedLabels.structures?.[0]) {
+                    setActiveStructure(generatedLabels.structures[0]);
+                  }
+                }
 
                 // ── Save to Database & LocalStorage ──
                 const newModelId = 'model_' + Date.now();
                 const promptUsed = pollData.prompts || data.promptUsed || `3D model of ${label}`;
                 
-                const savedModelItem = {
+                const savedModelItem = pollData.modelRecord || {
                   id: newModelId,
                   topic: label,
                   prompt: promptUsed,
                   model_url: loadUrl,
                   image_url: generatedImgUrl,
-                  created_at: new Date().toISOString()
+                  created_at: new Date().toISOString(),
+                  dynamicLabels: generatedLabels
                 };
                 
                 setGeneratedModels(prev => [savedModelItem, ...prev]);
@@ -725,8 +735,15 @@ export default function Page() {
     setNeural4dPrompt(model.prompt);
     setNeural4dModelUrl(model.model_url);
     setNeural4dImageUrl(model.image_url || null);
+    setDynamicLabels(model.dynamicLabels || null);
     setIsGenerating3D(false);
-    setActiveStructure("External Organ Surface");
+    
+    // Set active structure to the first dynamically available label if possible
+    if (model.dynamicLabels?.structures?.[0]) {
+      setActiveStructure(model.dynamicLabels.structures[0]);
+    } else {
+      setActiveStructure("External Organ Surface");
+    }
     setActiveTab('3d');
   };
 
@@ -762,6 +779,17 @@ export default function Page() {
   const getAnatomicalDetails = () => {
     if (neural4dModelUrl || isGenerating3D) {
       const displayName = customLabel || (selectedModel.charAt(0).toUpperCase() + selectedModel.slice(1) + " System");
+      
+      // Inject dynamically engineered Grok Labels if available in state
+      if (dynamicLabels && dynamicLabels.structures && dynamicLabels.info) {
+        return {
+          title: displayName,
+          subtitle: `Neural4D Model Generation`,
+          structures: dynamicLabels.structures,
+          info: dynamicLabels.info
+        };
+      }
+
       return {
         title: displayName,
         subtitle: `Neural4D Model Generation`,
@@ -1969,6 +1997,7 @@ export default function Page() {
                           neural4dModelUrl={neural4dModelUrl}
                           neural4dImageUrl={neural4dImageUrl}
                           pollProgress={pollProgress}
+                          dynamicLabels={dynamicLabels}
                         />
                       </div>
 
