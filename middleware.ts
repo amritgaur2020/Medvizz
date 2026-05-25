@@ -6,7 +6,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/generate-3d', 
   '/api/sessions(.*)', 
   '/api/models(.*)',
-  '/api/r2-file(.*)'
+  '/api/r2-file(.*)',
+  '/api/chat(.*)'
 ]);
 
 export default clerkMiddleware((auth, req) => {
