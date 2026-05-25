@@ -77,7 +77,7 @@ RESPONSE REQUIREMENTS:
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'grok-4.20-0309-reasoning',
+          model: 'grok-beta',
           messages: formattedMessages,
           temperature: 0.4,
         }),
@@ -88,13 +88,13 @@ RESPONSE REQUIREMENTS:
         aiResponseText = data.choices?.[0]?.message?.content || '';
       } else {
         const errorText = await response.text();
-        console.error(`[MedVis] Grok API error (${response.status}):`, errorText);
-        aiResponseText = `### ⚠️ Grok API Error (${response.status})\n\n${errorText}`;
+        console.error(`[MedVis] API error (${response.status}):`, errorText);
+        aiResponseText = `### ⚠️ MedVis Engine Error (${response.status})\n\nThe MedVis clinical reasoning engine was unable to process the request. This usually occurs if the upstream API key lacks active billing or permissions.\n\n**Server Response:** ${errorText}`;
         data = { choices: [{ message: { content: aiResponseText } }] };
       }
     } catch (fetchErr: any) {
       console.error('[MedVis] Network error:', fetchErr);
-      aiResponseText = `### ⚠️ Network Error\n\nCould not reach the xAI servers: ${fetchErr.message}`;
+      aiResponseText = `### ⚠️ Network Error\n\nCould not reach the MedVis reasoning clusters: ${fetchErr.message}`;
       data = { choices: [{ message: { content: aiResponseText } }] };
     }
 

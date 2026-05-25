@@ -482,7 +482,7 @@ export default function Page() {
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         sender: 'ai',
-        text: "### API Telemetry Error\n\nI was unable to establish a secure connection to the Grok reasoning cluster. Please check the network bridge or retry in a few moments.",
+        text: "### ⚠️ MedVis Telemetry Error\n\nI was unable to establish a secure connection to the MedVis reasoning cluster. Please check the network bridge or verify the engine status.",
       }]);
     } finally {
       setIsThinking(false);
