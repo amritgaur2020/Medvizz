@@ -57,18 +57,19 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { id, sessionId, sender, text, suggestModel, suggestLabel } = await req.json();
+    const { id, sessionId, sender, text, suggestModel, suggestLabel, imageUrl } = await req.json();
     const { userId } = await auth();
     const accountId = userId || 'anon';
     const messagesKey = `sessions/${accountId}/messages_${sessionId}.json`;
 
-    const newMsg = {
+    const newMsg: any = {
       id,
       session_id: sessionId,
       sender,
       text,
       suggest_model: suggestModel || null,
       suggest_label: suggestLabel || null,
+      image_url: imageUrl || null,
       created_at: new Date().toISOString()
     };
 

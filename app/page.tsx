@@ -25,7 +25,8 @@ import {
   PanelLeftOpen,
   Tag,
   Trash2,
-  Star
+  Star,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUser, useClerk, UserButton } from '@clerk/nextjs';
@@ -57,6 +58,10 @@ interface Message {
   text: string;
   suggestModel?: 'heart' | 'brain' | 'lungs' | 'kidneys';
   suggestLabel?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentType?: string;
+  imageUrl?: string;
 }
 
 export default function Page() {
@@ -89,6 +94,25 @@ export default function Page() {
       openSignIn({ fallbackRedirectUrl: '/' });
     }
   };
+  
+  // Attachment & File Upload States
+  const [attachedFile, setAttachedFile] = useState<{ url: string; name: string; type: string; size: number } | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fullscreen Image Modal State
+  const [activeModalImage, setActiveModalImage] = useState<string | null>(null);
+
+  // Escape key close for fullscreen image modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveModalImage(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
   
   // Neural4D Integration State
   const [isGenerating3D, setIsGenerating3D] = useState(false);
@@ -203,7 +227,8 @@ export default function Page() {
                 sender: m.sender,
                 text: m.text,
                 suggestModel: m.suggest_model || undefined,
-                suggestLabel: m.suggest_label || undefined
+                suggestLabel: m.suggest_label || undefined,
+                imageUrl: m.image_url || m.imageUrl || undefined
               }));
             }
           } catch (apiErr) {
@@ -297,7 +322,8 @@ export default function Page() {
           sender: m.sender,
           text: m.text,
           suggestModel: m.suggest_model || undefined,
-          suggestLabel: m.suggest_label || undefined
+          suggestLabel: m.suggest_label || undefined,
+          imageUrl: m.image_url || m.imageUrl || undefined
         }));
         setMessages(parsed);
         try {
@@ -403,20 +429,63 @@ export default function Page() {
     }
   };
 
+  const handleAttachClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const data = await res.json();
+      if (data.success) {
+        setAttachedFile({
+          url: data.url,
+          name: data.name,
+          type: data.type,
+          size: data.size,
+        });
+      }
+    } catch (err) {
+      console.error('File upload error:', err);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputText;
-    if (!query.trim()) return;
+    if (!query.trim() && !attachedFile) return;
 
-    // Add user message
+    // Add user message with any attachments
     const userMsg: Message = {
       id: Date.now().toString(),
       sender: 'user',
       text: query,
+      attachmentUrl: attachedFile?.url,
+      attachmentName: attachedFile?.name,
+      attachmentType: attachedFile?.type,
     };
 
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     setInputText('');
+    setAttachedFile(null); // Clear attached file state
     setIsThinking(true);
 
     const accountId = user?.id || 'anon';
@@ -438,14 +507,17 @@ export default function Page() {
         sender: 'user',
         text: query,
         suggestModel: null,
-        suggestLabel: null
+        suggestLabel: null,
+        attachmentUrl: userMsg.attachmentUrl,
+        attachmentName: userMsg.attachmentName,
+        attachmentType: userMsg.attachmentType,
       })
     }).catch(console.error);
 
     // Dynamically rename the session based on the first user message
     const currentSession = sessions.find(s => s.id === currentSessionId);
     if (currentSession && (currentSession.title.startsWith('New Medical Chat Session') || currentSession.title.startsWith('MedVis AI Clinical Sandbox'))) {
-      const newTitle = query.length > 30 ? query.substring(0, 30) + '...' : query;
+      const newTitle = query ? (query.length > 30 ? query.substring(0, 30) + '...' : query) : 'Attached Asset Analysis';
       const updatedSess = sessions.map(s => s.id === currentSessionId ? { ...s, title: newTitle } : s);
       setSessions(updatedSess);
       try {
@@ -535,6 +607,7 @@ export default function Page() {
         text: aiResponseText,
         suggestModel: modelSuggestion || data.suggestModel,
         suggestLabel: labelSuggestion || data.suggestLabel,
+        imageUrl: data.imageUrl,
       };
 
       setMessages(prev => {
@@ -546,7 +619,7 @@ export default function Page() {
         return nextMsgs;
       });
 
-      // Post AI message to API asynchronously
+      // Post AI message to API asynchronously (including imageUrl for persistence)
       fetch('/api/sessions/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -556,7 +629,8 @@ export default function Page() {
           sender: 'ai',
           text: newAiMsg.text,
           suggestModel: newAiMsg.suggestModel || null,
-          suggestLabel: newAiMsg.suggestLabel || null
+          suggestLabel: newAiMsg.suggestLabel || null,
+          imageUrl: newAiMsg.imageUrl || null
         })
       }).catch(console.error);
 
@@ -572,7 +646,7 @@ export default function Page() {
     }
   };
 
-  const handleLaunch3D = async (rawModel: string, label: string) => {
+  const handleLaunch3D = async (rawModel: string, label: string, grokImageUrl?: string) => {
     const model = (['heart', 'brain', 'lungs', 'kidneys'].includes(rawModel) 
       ? rawModel 
       : 'kidneys') as 'heart' | 'brain' | 'lungs' | 'kidneys';
@@ -594,36 +668,19 @@ export default function Page() {
       const res = await fetch('/api/generate-3d', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: label, messages: messages })
+        body: JSON.stringify({ topic: label, messages: messages, grokImageUrl })
       });
       const data = await res.json();
       
       if (!data.success) {
         console.error('[3D] generate-3d POST failed:', data.error);
+        setNeural4dPrompt(`⚠️ ${data.error || 'Failed to start 3D generation. Please try again after chatting about a medical topic.'}`);
+        setIsGenerating3D(false);
         return;
       }
 
-      // Show the Grok-engineered prompt in the UI immediately
+      // Show the prompt in the UI immediately
       if (data.promptUsed) setNeural4dPrompt(data.promptUsed);
-
-      if (data.source === 'procedural' && !data.uuid) {
-        // Neural4D key missing/invalid — no UUID returned, show procedural fallback
-        console.log('[3D] Using procedural fallback (Neural4D unavailable)');
-        setNeural4dModelUrl('fallback');
-        
-        // ── Save procedural model to local state ──
-        const recordId = data.modelRecord?.id || ('model_' + Date.now());
-        const newModelItem = {
-          id: recordId,
-          topic: label,
-          prompt: data.promptUsed || `3D procedural simulation of ${label}`,
-          model_url: 'fallback',
-          image_url: null,
-          created_at: new Date().toISOString()
-        };
-        setGeneratedModels(prev => [newModelItem, ...prev]);
-        return;
-      }
 
       if (data.uuid) {
         // ── Poll Neural4D retrieveModel until codeStatus === 0 ──
@@ -640,7 +697,8 @@ export default function Page() {
           await new Promise(resolve => setTimeout(resolve, delayMs));
 
           try {
-            const pollRes = await fetch(`/api/generate-3d?uuid=${data.uuid}`);
+            const resolvedGrokImg = grokImageUrl || data.grokImageUrl || '';
+            const pollRes = await fetch(`/api/generate-3d?uuid=${data.uuid}&topic=${encodeURIComponent(label)}&prompt=${encodeURIComponent(data.promptUsed || '')}&grokImageUrl=${encodeURIComponent(resolvedGrokImg)}`);
             if (!pollRes.ok) {
               console.error('[Neural4D] Poll HTTP error:', pollRes.status);
               continue;
@@ -691,11 +749,12 @@ export default function Page() {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    id: newModelId,
+                    id: savedModelItem.id || newModelId,
                     topic: label,
                     prompt: promptUsed,
                     modelUrl: loadUrl,
-                    imageUrl: generatedImgUrl
+                    imageUrl: generatedImgUrl,
+                    dynamicLabels: generatedLabels
                   })
                 }).then(res => res.json())
                   .then(saveRes => {
@@ -1281,6 +1340,13 @@ export default function Page() {
       ) : (
         /* PREMIUM CHATGPT-STYLE DASHBOARD */
         <div className="fixed inset-0 z-50 flex bg-[#212121] text-[#ececec] font-sans h-[100dvh] w-screen overflow-hidden">
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileChange} 
+            className="hidden" 
+            accept="image/*,application/pdf,text/*,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+          />
           
           {/* Mobile Sidebar Overlay */}
           {isSidebarOpen && (
@@ -1362,81 +1428,6 @@ export default function Page() {
                   </div>
                 ))}
               </div>
-
-              <div className="h-[1px] bg-[#2f2f2f] my-3" />
-
-              {/* Neural4D Generated Models Gallery (SQLite & LocalStorage) */}
-              <div className="flex flex-col gap-1 overflow-y-auto max-h-[30vh] pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-[#3f3f3f] [&::-webkit-scrollbar-thumb]:rounded-full">
-                <p className="text-[10px] font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-[#6f6f6f]" />
-                  Neural4D 3D Models ({generatedModels.length})
-                </p>
-                {generatedModels.length === 0 ? (
-                  <p className="text-[10px] text-[#5f5f5f] px-2.5 italic">No generated models yet. Ask chat to explore organs!</p>
-                ) : (
-                  generatedModels.map((model) => (
-                    <div
-                      key={model.id}
-                      onClick={() => handleLoadSavedModel(model)}
-                      className="group/model flex items-center justify-between w-full p-2 rounded-lg text-xs transition-all text-left truncate cursor-pointer text-[#b4b4b4] hover:bg-[#212121] hover:text-white"
-                    >
-                      <div className="flex items-center gap-2.5 truncate flex-1 pr-1">
-                        {model.image_url ? (
-                          <img
-                            src={model.image_url}
-                            alt={model.topic}
-                            className="w-7 h-7 rounded-md border border-[#2f2f2f] object-cover bg-neutral-900 flex-shrink-0 shadow-sm"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                        )}
-                        <div className="flex flex-col truncate">
-                          <span className="truncate text-white font-medium text-xs leading-none mb-0.5">{model.topic}</span>
-                          <span className="text-[8px] text-[#6f6f6f] truncate max-w-[120px] font-mono leading-none">
-                            {model.prompt ? model.prompt.replace(/["'\n\r]/g, '') : 'Neural4D Asset'}
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => handleDeleteSavedModel(model.id, e)}
-                        title="Delete Saved Model"
-                        className="opacity-0 group-hover/model:opacity-100 p-1 hover:bg-[#2f2f2f] rounded text-[#8e8e8e] hover:text-red-500 transition-all flex-shrink-0"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="h-[1px] bg-[#2f2f2f] my-3" />
-
-              {/* Preset Simulators */}
-              <div className="flex flex-col gap-1">
-                <p className="text-[10px] font-semibold text-[#6f6f6f] px-2.5 uppercase tracking-wider mb-2">Preset Simulators</p>
-                {[
-                  { label: "Coronary Circulation", model: "heart", text: "Explain coronary circulation in heart" },
-                  { label: "Cerebral Cortex folds", model: "brain", text: "Explain folds of the cerebral cortex brain" },
-                  { label: "Pulmonary Inhalation", model: "lungs", text: "Explain pulmonary breathing mechanics in lungs" },
-                  { label: "Renal Filtration", model: "kidneys", text: "Explain how kidneys filter blood and produce urine" }
-                ].map((item, index) => (
-                  <button
-                    key={index}
-                    onClick={async () => {
-                      await handleNewSession(item.label, item.model);
-                      handleSendMessage(item.text);
-                    }}
-                    className="flex items-center gap-2 w-full p-2 hover:bg-[#212121] text-[#b4b4b4] hover:text-white rounded-lg text-xs transition-colors text-left truncate"
-                  >
-                    <Compass className="w-3.5 h-3.5 text-[#5f5f5f] flex-shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                ))}
-              </div>
-
             </div>
 
               <div className="p-3 border-t border-[#2f2f2f] bg-[#0d0d0d] flex flex-col justify-center gap-3">
@@ -1531,8 +1522,29 @@ export default function Page() {
                         Ask our clinical assistant about cardiovascular cycles, pulmonary mechanics, or neural pathways to visualize simulated models dynamically.
                       </p>
 
-                      {/* Large Perplexity-Style Chat Input Card */}
+
+
+                          {/* Large Perplexity-Style Chat Input Card */}
                       <div className="w-full max-w-2xl bg-[#1e1e1e]/90 border border-[#2f2f2f] hover:border-[#3a3a3a] focus-within:border-cyan-700/60 focus-within:ring-1 focus-within:ring-cyan-700/20 rounded-2xl p-4 flex flex-col gap-2.5 transition-all shadow-2xl relative mb-8 text-left">
+                        {/* Pending Attachment preview */}
+                        {attachedFile && (
+                          <div className="flex items-center gap-2 p-1.5 pr-2.5 rounded-xl bg-cyan-950/40 border border-cyan-800/40 text-xs text-white max-w-max animate-fade-in mb-1">
+                            <div className="w-6 h-6 rounded-lg bg-cyan-950 border border-cyan-800 flex items-center justify-center text-cyan-400">
+                              <span className="text-[9px] font-bold uppercase font-mono">
+                                {attachedFile.type.startsWith('image/') ? 'IMG' : 'DOC'}
+                              </span>
+                            </div>
+                            <span className="font-semibold truncate max-w-[150px]">{attachedFile.name}</span>
+                            <button 
+                              onClick={() => setAttachedFile(null)}
+                              className="p-1 hover:bg-cyan-900 rounded-md text-[#8e8e8e] hover:text-red-400 transition-colors"
+                              title="Remove attachment"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+
                         <textarea 
                           value={inputText}
                           onChange={(e) => {
@@ -1556,11 +1568,17 @@ export default function Page() {
                           <div className="flex items-center gap-2">
                             <button 
                               type="button" 
+                              onClick={handleAttachClick}
+                              disabled={isUploading}
                               title="Attach file (simulation context)"
-                              className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                              className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white disabled:opacity-50 transition-colors flex items-center gap-1.5 text-xs font-medium"
                             >
-                              <Plus className="w-4 h-4" />
-                              <span className="hidden sm:inline">Attach</span>
+                              {isUploading ? (
+                                <div className="w-4 h-4 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Plus className="w-4 h-4" />
+                              )}
+                              <span className="hidden sm:inline">{isUploading ? 'Uploading...' : 'Attach'}</span>
                             </button>
                           </div>
 
@@ -1681,34 +1699,86 @@ export default function Page() {
                                 ? 'bg-[#2f2f2f] text-white rounded-tr-none' 
                                 : 'bg-[#171717]/80 border border-[#2f2f2f] text-[#ececec] rounded-tl-none space-y-4'
                             }`}>
-                              <div className={`space-y-1 mt-0.5 ${msg.sender === 'user' ? 'whitespace-pre-wrap' : ''}`}>
+                              <div className={`space-y-2 mt-0.5 ${msg.sender === 'user' ? 'whitespace-pre-wrap' : ''}`}>
                                 {msg.sender === 'user' ? (
-                                  msg.text
+                                  <div className="space-y-3">
+                                    {msg.attachmentUrl && (
+                                      <div className="mb-2 p-2 rounded-xl bg-black/40 border border-[#3f3f3f] flex items-center gap-3 max-w-sm">
+                                        {msg.attachmentType?.startsWith('image/') ? (
+                                          <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-black/50 border border-[#3f3f3f] flex-shrink-0">
+                                            <img src={msg.attachmentUrl} alt="Attached Preview" className="w-full h-full object-cover" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-10 h-10 rounded-lg bg-cyan-950/40 border border-cyan-800/40 flex items-center justify-center text-cyan-400 flex-shrink-0 font-bold text-[10px] tracking-wider uppercase font-mono">
+                                            DOC
+                                          </div>
+                                        )}
+                                        <div className="flex-1 min-w-0 text-left">
+                                          <p className="text-xs font-bold text-white truncate">{msg.attachmentName}</p>
+                                          <p className="text-[10px] text-neutral-400 uppercase tracking-wider">User Attachment</p>
+                                        </div>
+                                        <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="p-1.5 hover:bg-[#2f2f2f] rounded text-[#8e8e8e] hover:text-white transition-colors text-xs font-semibold">
+                                          View
+                                        </a>
+                                      </div>
+                                    )}
+                                    {msg.text && <p className="text-sm sm:text-base leading-relaxed">{msg.text}</p>}
+                                  </div>
                                 ) : (
-                                  <ReactMarkdown 
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
-                                      h1: ({node, ...props}) => <h1 className="text-xl sm:text-2xl font-extrabold text-white mt-6 mb-3 tracking-tight border-b border-[#2f2f2f] pb-2" {...props} />,
-                                      h2: ({node, ...props}) => <h2 className="text-lg sm:text-xl font-bold text-white mt-5 mb-2.5 tracking-tight" {...props} />,
-                                      h3: ({node, ...props}) => <h3 className="text-base sm:text-lg font-bold text-cyan-400 mt-4 mb-2" {...props} />,
-                                      p: ({node, ...props}) => <p className="text-sm sm:text-base text-[#d4d4d4] leading-relaxed mb-3" {...props} />,
-                                      ul: ({node, ...props}) => <ul className="list-disc pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
-                                      ol: ({node, ...props}) => <ol className="list-decimal pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
-                                      li: ({node, ...props}) => <li className="leading-relaxed" {...props} />,
-                                      strong: ({node, ...props}) => <strong className="font-semibold text-cyan-300" {...props} />,
-                                      a: ({node, ...props}) => <a className="text-cyan-400 hover:underline hover:text-cyan-300" {...props} />,
-                                      code: ({node, inline, ...props}: any) => 
-                                        inline 
-                                          ? <code className="bg-[#2a2a2a] text-cyan-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-[#3f3f3f]" {...props} />
-                                          : <div className="bg-[#111] p-4 rounded-xl overflow-x-auto border border-[#333] my-4 font-mono text-[#e2e2e2] text-sm whitespace-pre-wrap block" {...props} />,
-                                      blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-cyan-600 pl-4 py-1 my-4 bg-cyan-950/20 text-[#a0a0a0] italic" {...props} />,
-                                      table: ({node, ...props}) => <div className="overflow-x-auto my-4"><table className="w-full text-sm sm:text-base text-left text-[#d4d4d4]" {...props} /></div>,
-                                      th: ({node, ...props}) => <th className="px-4 py-2 border-b border-[#3f3f3f] font-bold text-white bg-[#2a2a2a]" {...props} />,
-                                      td: ({node, ...props}) => <td className="px-4 py-2 border-b border-[#2f2f2f]" {...props} />,
-                                    }}
-                                  >
-                                    {msg.text}
-                                  </ReactMarkdown>
+                                  <div className="space-y-4 text-left">
+                                    <ReactMarkdown 
+                                      remarkPlugins={[remarkGfm]}
+                                      components={{
+                                        h1: ({node, ...props}) => <h1 className="text-xl sm:text-2xl font-extrabold text-white mt-6 mb-3 tracking-tight border-b border-[#2f2f2f] pb-2" {...props} />,
+                                        h2: ({node, ...props}) => <h2 className="text-lg sm:text-xl font-bold text-white mt-5 mb-2.5 tracking-tight" {...props} />,
+                                        h3: ({node, ...props}) => <h3 className="text-base sm:text-lg font-bold text-cyan-400 mt-4 mb-2" {...props} />,
+                                        p: ({node, ...props}) => <p className="text-sm sm:text-base text-[#d4d4d4] leading-relaxed mb-3" {...props} />,
+                                        ul: ({node, ...props}) => <ul className="list-disc pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
+                                        ol: ({node, ...props}) => <ol className="list-decimal pl-6 space-y-1 mb-4 text-[#d4d4d4] text-sm sm:text-base marker:text-cyan-600" {...props} />,
+                                        li: ({node, ...props}) => <li className="leading-relaxed" {...props} />,
+                                        strong: ({node, ...props}) => <strong className="font-semibold text-cyan-300" {...props} />,
+                                        a: ({node, ...props}) => <a className="text-cyan-400 hover:underline hover:text-cyan-300" {...props} />,
+                                        code: ({node, inline, ...props}: any) => 
+                                          inline 
+                                            ? <code className="bg-[#2a2a2a] text-cyan-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-[#3f3f3f]" {...props} />
+                                            : <div className="bg-[#111] p-4 rounded-xl overflow-x-auto border border-[#333] my-4 font-mono text-[#e2e2e2] text-sm whitespace-pre-wrap block" {...props} />,
+                                        blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-cyan-600 pl-4 py-1 my-4 bg-cyan-950/20 text-[#a0a0a0] italic" {...props} />,
+                                        table: ({node, ...props}) => <div className="overflow-x-auto my-4"><table className="w-full text-sm sm:text-base text-left text-[#d4d4d4]" {...props} /></div>,
+                                        th: ({node, ...props}) => <th className="px-4 py-2 border-b border-[#3f3f3f] font-bold text-white bg-[#2a2a2a]" {...props} />,
+                                        td: ({node, ...props}) => <td className="px-4 py-2 border-b border-[#2f2f2f]" {...props} />,
+                                      }}
+                                    >
+                                      {msg.text}
+                                    </ReactMarkdown>
+
+                                    {/* Grok Generated 2D Visualizer Image Card */}
+                                    {msg.imageUrl && (
+                                      <div className="mt-4 p-1.5 rounded-2xl bg-black/40 border border-cyan-950/30 overflow-hidden shadow-2xl relative group">
+                                        <div className="p-2 border-b border-[#2f2f2f]/60 bg-cyan-950/10 flex items-center justify-between">
+                                          <div className="flex items-center gap-1.5">
+                                            <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                                            <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Grok 2D Visual Diagnosis</span>
+                                          </div>
+                                          <span className="text-[9px] text-neutral-500 font-mono">Neural Render</span>
+                                        </div>
+                                        <div className="relative aspect-square max-h-[350px] w-full bg-[#0d0d0d] overflow-hidden flex items-center justify-center rounded-xl">
+                                          <img 
+                                            src={msg.imageUrl} 
+                                            alt="Anatomical Diagnostic Render" 
+                                            className="w-full h-full object-cover cursor-pointer transition-transform duration-500 group-hover:scale-[1.03]" 
+                                            onClick={() => setActiveModalImage(msg.imageUrl)}
+                                          />
+                                          <button
+                                            onClick={() => setActiveModalImage(msg.imageUrl)}
+                                            className="absolute bottom-3 right-3 px-3 py-1.5 rounded-lg bg-black/80 hover:bg-black/95 text-xs text-white border border-[#2f2f2f] transition-all opacity-0 group-hover:opacity-100 flex items-center gap-1.5 backdrop-blur-sm cursor-pointer"
+                                          >
+                                            <Maximize2 className="w-3.5 h-3.5" />
+                                            <span>View Fullscreen</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
                               </div>
 
@@ -1716,7 +1786,7 @@ export default function Page() {
                               {msg.sender === 'ai' && msg.suggestModel && (
                                 <div className="pt-2 border-t border-[#2f2f2f]">
                                   <button
-                                    onClick={() => handleLaunch3D(msg.suggestModel!, msg.suggestLabel!)}
+                                    onClick={() => handleLaunch3D(msg.suggestModel!, msg.suggestLabel!, msg.imageUrl)}
                                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 hover:border-cyan-700 text-cyan-400 text-xs font-semibold tracking-wide transition-all shadow-md"
                                   >
                                     <Compass className="w-3.5 h-3.5" />
@@ -1758,8 +1828,29 @@ export default function Page() {
                     {/* Message input bar at bottom during conversation */}
                     <div className="p-4 bg-[#212121] border-t border-[#2f2f2f]">
                       <div className="max-w-3xl mx-auto relative flex flex-col items-center">
+
+
                         {/* Large Perplexity-Style Chat Input Card */}
                         <div className="w-full bg-[#1e1e1e]/90 border border-[#2f2f2f] hover:border-[#3a3a3a] focus-within:border-cyan-700/60 focus-within:ring-1 focus-within:ring-cyan-700/20 rounded-2xl p-4 flex flex-col gap-2.5 transition-all shadow-2xl relative text-left">
+                          {/* Pending Attachment preview */}
+                          {attachedFile && (
+                            <div className="flex items-center gap-2 p-1.5 pr-2.5 rounded-xl bg-cyan-950/40 border border-cyan-800/40 text-xs text-white max-w-max animate-fade-in mb-1">
+                              <div className="w-6 h-6 rounded-lg bg-cyan-950 border border-cyan-800 flex items-center justify-center text-cyan-400">
+                                <span className="text-[9px] font-bold uppercase font-mono">
+                                  {attachedFile.type.startsWith('image/') ? 'IMG' : 'DOC'}
+                                </span>
+                              </div>
+                              <span className="font-semibold truncate max-w-[150px]">{attachedFile.name}</span>
+                              <button 
+                                onClick={() => setAttachedFile(null)}
+                                className="p-1 hover:bg-cyan-900 rounded-md text-[#8e8e8e] hover:text-red-400 transition-colors"
+                                title="Remove attachment"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+
                           <textarea 
                             value={inputText}
                             onChange={(e) => {
@@ -1783,11 +1874,17 @@ export default function Page() {
                             <div className="flex items-center gap-2">
                               <button 
                                 type="button" 
+                                onClick={handleAttachClick}
+                                disabled={isUploading}
                                 title="Attach file (simulation context)"
-                                className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                                className="p-2 hover:bg-[#2a2a2a] rounded-lg text-[#8e8e8e] hover:text-white disabled:opacity-50 transition-colors flex items-center gap-1.5 text-xs font-medium"
                               >
-                                <Plus className="w-4 h-4" />
-                                <span className="hidden sm:inline">Attach</span>
+                                {isUploading ? (
+                                  <div className="w-4 h-4 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <Plus className="w-4 h-4" />
+                                )}
+                                <span className="hidden sm:inline">{isUploading ? 'Uploading...' : 'Attach'}</span>
                               </button>
                             </div>
 
@@ -1950,7 +2047,7 @@ export default function Page() {
                                   )}
                                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
                                   <span className="absolute bottom-3 left-3 text-xs font-bold text-white uppercase tracking-wider bg-cyan-950/80 border border-cyan-800/40 px-2.5 py-1 rounded-md backdrop-blur-sm">
-                                    Neural4D Render
+                                    MedVis 3D Render
                                   </span>
                                 </div>
 
@@ -2184,6 +2281,39 @@ export default function Page() {
         </div>
       )}
 
+      {/* Fullscreen Image Modal overlay with Close button */}
+      <AnimatePresence>
+        {activeModalImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/90 backdrop-blur-md z-[9999] flex items-center justify-center p-4 md:p-8 cursor-zoom-out"
+            onClick={() => setActiveModalImage(null)}
+          >
+            {/* Close Button on Top Right */}
+            <button
+              onClick={() => setActiveModalImage(null)}
+              className="absolute top-6 right-6 p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white hover:scale-105 active:scale-95 transition-all z-10 border border-white/10 shadow-lg cursor-pointer"
+              aria-label="Close fullscreen view"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            {/* Modal Image */}
+            <motion.img
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              src={activeModalImage}
+              alt="Fullscreen Diagnostic Render"
+              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl cursor-default"
+              onClick={(e) => e.stopPropagation()} // Prevent close on clicking image itself
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
