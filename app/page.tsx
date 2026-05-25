@@ -1610,13 +1610,13 @@ export default function Page() {
                         <div>
                           <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                            Neural4D Anatomical Lab
+                            MedVis Anatomical Lab
                           </p>
                           <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
                             Your Custom Generated 3D Organs
                           </h2>
                           <p className="text-sm text-[#8e8e8e] mt-2 max-w-2xl leading-relaxed">
-                            Every time you explore medical topics in chat, Neural4D synthesizes actual 3D meshes. Select a generated organ model below to launch the clinical simulator.
+                            Every time you explore medical topics in chat, MedVis synthesizes actual 3D meshes. Select a generated organ model below to launch the clinical simulator.
                           </p>
                         </div>
                         <button
@@ -1637,7 +1637,7 @@ export default function Page() {
                           <div className="space-y-2 max-w-sm">
                             <h4 className="font-bold text-white text-lg">No Custom Models Deployed Yet</h4>
                             <p className="text-xs text-[#8e8e8e] leading-relaxed">
-                              Use the Clinical Chat Assistant to ask about any organ system (e.g. "Explain how the heart pumps blood") and the Neural4D synthesis pipeline will create it for you!
+                              Use the Clinical Chat Assistant to ask about any organ system (e.g. "Explain how the heart pumps blood") and the MedVis synthesis pipeline will create it for you!
                             </p>
                           </div>
                           <button
@@ -1795,7 +1795,7 @@ export default function Page() {
                             {customLabel || selectedModel} System
                           </h3>
                           <p className="text-xs text-[#8e8e8e] mt-1 italic">
-                            Custom Neural4D synthesized geometry
+                            Custom MedVis synthesized geometry
                           </p>
                         </div>
 

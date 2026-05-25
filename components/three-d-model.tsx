@@ -506,7 +506,7 @@ export function ThreeDModel({
             <div className="relative aspect-video w-full rounded-2xl overflow-hidden border border-[#2f2f2f] bg-black/50 group-hover:border-cyan-800/50 transition-all duration-300">
               <img
                 src={neural4dImageUrl}
-                alt="Neural4D High-Resolution Synthesis"
+                alt="MedVis High-Resolution Synthesis"
                 className="w-full h-full object-cover select-none"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
@@ -548,7 +548,7 @@ export function ThreeDModel({
           <div className="relative rounded-lg overflow-hidden border border-[#2f2f2f] bg-[#0a0a0a]">
             <img
               src={neural4dImageUrl}
-              alt="Neural4D Generated Preview"
+              alt="MedVis Generated Preview"
               className="w-28 h-28 object-cover select-none"
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
@@ -566,7 +566,7 @@ export function ThreeDModel({
             <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-cyan-400 animate-spin"></div>
             <div className="absolute inset-2 rounded-full border-2 border-transparent border-t-cyan-600/60 animate-spin" style={{animationDuration:'1.5s', animationDirection:'reverse'}}></div>
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-              <span className="text-cyan-400 font-black tracking-widest text-xs">NEURAL4D</span>
+              <span className="text-cyan-400 font-black tracking-widest text-xs">MEDVIS ENGINE</span>
               <span className="text-cyan-300 font-bold text-lg">{pollProgress > 0 ? `${pollProgress}%` : '...'}</span>
             </div>
           </div>
@@ -585,7 +585,7 @@ export function ThreeDModel({
           {/* Grok-engineered prompt */}
           {neural4dPrompt ? (
             <div className="mx-6 bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-3 max-w-sm w-full">
-              <span className="text-cyan-500 text-[9px] font-bold uppercase tracking-widest block mb-1.5">Grok Prompt Engineering</span>
+              <span className="text-cyan-500 text-[9px] font-bold uppercase tracking-widest block mb-1.5">Clinical Prompt Engineering</span>
               <p className="text-[10px] text-[#888] italic leading-relaxed line-clamp-3">"{neural4dPrompt}"</p>
             </div>
           ) : (
@@ -609,7 +609,7 @@ export function ThreeDModel({
       {!isGenerating && neural4dModelUrl && (
         <div className="absolute bottom-4 right-4 pointer-events-none flex items-center gap-1.5 border border-cyan-800 px-2 py-1 rounded bg-cyan-950">
           <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-          <span className="text-[10px] text-cyan-400 font-bold tracking-wider">NEURAL4D MODEL LOADED</span>
+          <span className="text-[10px] text-cyan-400 font-bold tracking-wider">MEDVIS MODEL LOADED</span>
         </div>
       )}
 

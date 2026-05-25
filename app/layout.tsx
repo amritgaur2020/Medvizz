@@ -71,6 +71,8 @@ export default function RootLayout({
           userButtonPopoverActionButtonIcon: '!text-white',
           userButtonPopoverFooter: '!text-white',
           badge: '!text-white',
+          userPreviewMainIdentifier: '!text-white font-bold',
+          userPreviewSecondaryIdentifier: '!text-gray-300',
         }
       }}
     >

@@ -4,7 +4,6 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true,
     remotePatterns: [
       { protocol: 'https', hostname: '**.znkj.com' },
       { protocol: 'https', hostname: '**.myqcloud.com' },
