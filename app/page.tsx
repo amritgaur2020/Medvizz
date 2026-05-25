@@ -64,6 +64,7 @@ export default function Page() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLabels, setShowLabels] = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
+  const [isGeneratingLabels, setIsGeneratingLabels] = useState(false);
   const [showHUD, setShowHUD] = useState(true);
   
   // Google Auth & SSO session states
@@ -740,9 +741,9 @@ export default function Page() {
     // Fallback in case old models don't have dynamic labels
     if (!model.dynamicLabels) {
       setDynamicLabels(null);
-      setActiveStructure("External Organ Surface");
       setActiveTab('3d');
       setIsGenerating3D(false);
+      setIsGeneratingLabels(true);
       
       try {
         console.log('[Frontend] Model missing dynamic labels, generating on the fly...');
@@ -757,11 +758,14 @@ export default function Page() {
           if (data.dynamicLabels.structures?.[0]) {
             setActiveStructure(data.dynamicLabels.structures[0]);
           }
-          // Update local memory so we don't fetch it again
+          // Update local memory securely so it persists instantly
           model.dynamicLabels = data.dynamicLabels;
+          setSessions(prev => prev.map(s => s.id === model.id ? { ...s, dynamicLabels: data.dynamicLabels } : s));
         }
       } catch (err) {
         console.error('[Frontend] Failed to backfill dynamic labels:', err);
+      } finally {
+        setIsGeneratingLabels(false);
       }
     } else {
       setDynamicLabels(model.dynamicLabels);
@@ -2080,15 +2084,25 @@ export default function Page() {
 
                         {/* Structures List */}
                         <div className="space-y-2">
-                          <p className="text-xs font-semibold text-[#8e8e8e] uppercase tracking-wider mb-3 text-left">
+                          <p className="text-xs font-semibold text-[#8e8e8e] uppercase tracking-wider mb-3 text-left flex items-center justify-between">
                             Anatomical Regions
+                            {isGeneratingLabels && (
+                              <span className="text-[9px] text-cyan-400 animate-pulse flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" /> AI Scanning...
+                              </span>
+                            )}
                           </p>
-                          {[
-                            "External Organ Surface",
-                            "Veins & Blood Streams",
-                            "Natural Organ Coloration",
-                            "Internal Cavity & Cross-section"
-                          ].map((item) => (
+                          
+                          {isGeneratingLabels && !dynamicLabels && (
+                            <div className="w-full flex flex-col items-center justify-center p-6 border border-dashed border-cyan-800/40 rounded-xl bg-cyan-950/10 gap-3">
+                               <div className="w-5 h-5 rounded-full border-2 border-cyan-500/30 border-t-cyan-400 animate-spin" />
+                               <p className="text-[10px] text-cyan-400/80 tracking-widest uppercase font-bold text-center">
+                                 Mapping 12-Point<br/>Anatomical Data...
+                               </p>
+                            </div>
+                          )}
+
+                          {dynamicLabels && dynamicLabels.structures && dynamicLabels.structures.map((item: string) => (
                             <button
                               key={item}
                               onClick={() => setActiveStructure(item)}
