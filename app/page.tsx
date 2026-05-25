@@ -24,7 +24,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Tag,
-  Trash2
+  Trash2,
+  Star
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUser, useClerk, UserButton } from '@clerk/nextjs';
@@ -1355,7 +1356,16 @@ export default function Page() {
 
             </div>
 
-              <div className="p-3 border-t border-[#2f2f2f] bg-[#0d0d0d] flex flex-col justify-center">
+              <div className="p-3 border-t border-[#2f2f2f] bg-[#0d0d0d] flex flex-col justify-center gap-3">
+                <a 
+                  href="https://docs.google.com/forms/d/e/1FAIpQLSd2PGNzmBSwEKi4EbH_vwmEXasNcwZDEtmRHFDDZ-B0T9oarA/viewform?usp=publish-editor" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full p-2 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/60 text-cyan-400 hover:text-cyan-300 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-[0_0_10px_rgba(6,182,212,0.15)] hover:shadow-[0_0_15px_rgba(6,182,212,0.25)]"
+                >
+                  <Star className="w-3.5 h-3.5" />
+                  Leave a Review
+                </a>
                 <div className="flex items-center gap-3">
                   <UserButton afterSignOutUrl="/" appearance={{ elements: { userButtonAvatarBox: "w-8 h-8" } }} />
                   <div className="flex-1 min-w-0">
