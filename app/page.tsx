@@ -1580,7 +1580,7 @@ export default function Page() {
                               ) : (
                                 <>
                                   <Brain className="w-3.5 h-3.5 text-cyan-400" />
-                                  <span>Mode: Deep & Brief</span>
+                                  <span>Mode: Deep & In-Depth</span>
                                 </>
                               )}
                               <ChevronRight className="w-3 h-3 text-[#8e8e8e] rotate-90" />
@@ -1603,7 +1603,7 @@ export default function Page() {
                                     Simple Language
                                   </span>
                                   <span className="text-[10px] text-[#8e8e8e] pl-5 leading-normal font-normal">
-                                    Easy-to-understand explanations with simple terminology and analogies.
+                                    Short, point-to-point explanations in simple language.
                                   </span>
                                 </button>
                                 <button
@@ -1616,10 +1616,10 @@ export default function Page() {
                                 >
                                   <span className="text-xs font-bold flex items-center gap-1.5">
                                     <Brain className="w-3.5 h-3.5 text-cyan-400" />
-                                    Brief & Deep
+                                    Deep & In-Depth
                                   </span>
                                   <span className="text-[10px] text-[#8e8e8e] pl-5 leading-normal font-normal">
-                                    Academically rigorous, scientifically precise physiological details in a concise format.
+                                    Long, comprehensive clinical explanations with MBBS-level terminology.
                                   </span>
                                 </button>
                               </div>
@@ -1807,7 +1807,7 @@ export default function Page() {
                                 ) : (
                                   <>
                                     <Brain className="w-3.5 h-3.5 text-cyan-400" />
-                                    <span>Mode: Deep & Brief</span>
+                                    <span>Mode: Deep & In-Depth</span>
                                   </>
                                 )}
                                 <ChevronRight className="w-3 h-3 text-[#8e8e8e] rotate-90" />
@@ -1830,7 +1830,7 @@ export default function Page() {
                                       Simple Language
                                     </span>
                                     <span className="text-[10px] text-[#8e8e8e] pl-5 leading-normal font-normal">
-                                      Easy-to-understand explanations with simple terminology and analogies.
+                                      Short, point-to-point explanations in simple language.
                                     </span>
                                   </button>
                                   <button
@@ -1843,10 +1843,10 @@ export default function Page() {
                                   >
                                     <span className="text-xs font-bold flex items-center gap-1.5">
                                       <Brain className="w-3.5 h-3.5 text-cyan-400" />
-                                      Brief & Deep
+                                      Deep & In-Depth
                                     </span>
                                     <span className="text-[10px] text-[#8e8e8e] pl-5 leading-normal font-normal">
-                                      Academically rigorous, scientifically precise physiological details in a concise format.
+                                      Long, comprehensive clinical explanations with MBBS-level terminology.
                                     </span>
                                   </button>
                                 </div>
