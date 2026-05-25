@@ -61,7 +61,7 @@ export async function POST(req: Request) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${xaiKey}` },
           body: JSON.stringify({
-            model: 'grok-2-1212',
+            model: 'grok-4.20-0309-reasoning',
             messages: [
               {
                 role: 'system',
@@ -185,7 +185,7 @@ async function generateAnatomicalLabels(topic: string, prompt: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${xaiKey}` },
       body: JSON.stringify({
-        model: 'grok-2-1212',
+        model: 'grok-4.20-0309-reasoning',
         messages: [
           {
             role: 'system',
