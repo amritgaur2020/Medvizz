@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { uploadModelToR2, uploadPreviewToR2, getR2PublicUrl, uploadMetadataToR2 } from '@/lib/r2';
 
+export const maxDuration = 60; // Allow Grok Reasoning up to 60 seconds
+
 // Helper functions to safely decode API keys without triggering GitHub Push Protection
 function getXaiKey(): string {
   if (process.env.XAI_API_KEY) return process.env.XAI_API_KEY;

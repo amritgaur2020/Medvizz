@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getMetadataFromR2, uploadMetadataToR2 } from '@/lib/r2';
 
+export const maxDuration = 60; // Allow Grok Reasoning up to 60 seconds
+
 function getXaiKey(): string {
   const key = process.env.XAI_API_KEY;
   if (!key) console.warn('[Env] XAI_API_KEY is not defined.');
