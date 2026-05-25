@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getXaiKey, uploadMetadataToR2, getMetadataFromR2 } from '@/lib/r2';
+import { getMetadataFromR2, uploadMetadataToR2 } from '@/lib/r2';
 
+function getXaiKey(): string {
+  const key = process.env.XAI_API_KEY;
+  if (!key) console.warn('[Env] XAI_API_KEY is not defined.');
+  return key || '';
+}
 export async function POST(req: Request) {
   try {
     const body = await req.json();
